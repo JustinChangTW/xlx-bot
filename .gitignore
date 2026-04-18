@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.log
+.vscode/
+venv/
+# 如果有放下載的圖片或資料夾也要避開
+# 確保這些會導致權限報錯的資料夾不會被 Git 碰到
+ollama_data/
+history/

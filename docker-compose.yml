@@ -1,0 +1,44 @@
+version: '3'
+services:
+  # 1. AI 大腦伺服器 (Ollama)
+  ollama-server:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    volumes:
+      - ./ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: always
+
+  # 2. 小龍蝦機器人主程式 (Flask)
+  xlx-workstation:
+    image: python:3.9-slim
+    container_name: xlx-bot
+    depends_on:
+      - ollama-server
+    # 這裡使用 links 確保 xlx-bot 永遠能透過名稱找到 ollama-server
+    links:
+      - ollama-server
+    volumes:
+      - .:/app
+    working_dir: /app
+    ports:
+      - "8080:8080"
+    # 自動化安裝套件並啟動程式
+    command: sh -c "pip install --no-cache-dir requests flask line-bot-sdk && python main.py"
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G # 限制機器人本身記憶體，留給 AI 運算
+
+  # 3. 自動化通訊隧道 (ngrok) - 新增整併項目
+  ngrok-tunnel:
+    image: ngrok/ngrok:latest
+    container_name: ngrok-tunnel
+    restart: always
+    environment:
+      # 請確認這裡使用的是你剛取得的 Token
+      - NGROK_AUTHTOKEN=1Y6tPLC6qz0I3zRWLNxvmJTk6KW_2sBRtgqFsFYzX6y7hihAQ
+    # 這裡指向 xlx-workstation 的 8080 端口
+    command: http xlx-workstation:8080
