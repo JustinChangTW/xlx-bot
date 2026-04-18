@@ -12,20 +12,20 @@ services:
 
   # 2. 小龍蝦機器人主程式 (Flask)
   xlx-workstation:
-    image: python:3.9-slim
+    build: .
+    image: xlx-bot-agent
     container_name: xlx-bot
     depends_on:
       - ollama-server
-    # 這裡使用 links 確保 xlx-bot 永遠能透過名稱找到 ollama-server
     links:
       - ollama-server
+    env_file:
+      - .env
     volumes:
       - .:/app
     working_dir: /app
     ports:
       - "8080:8080"
-    # 自動化安裝套件並啟動程式
-    command: sh -c "pip install --no-cache-dir requests flask line-bot-sdk && python main.py"
     restart: always
     deploy:
       resources:
