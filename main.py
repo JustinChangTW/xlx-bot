@@ -605,37 +605,44 @@ def callback():
 
 
 # LINE 消息事件處理器，收到文字訊息後呼叫 ask_ai 生成回覆
+import threading
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_text = event.message.text
-    user_id = getattr(event.source, 'user_id', None)
-    logger.info('Received text message from user_id=%s text=%s', user_id, user_text)
+    def process_message():
+        user_text = event.message.text
+        user_id = getattr(event.source, 'user_id', None)
+        logger.info('Received text message from user_id=%s text=%s', user_id, user_text)
 
-    # 獲取用戶歷史
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
-    
-    history = conversation_history[user_id]
+        # 獲取用戶歷史
+        if user_id not in conversation_history:
+            conversation_history[user_id] = []
+        
+        history = conversation_history[user_id]
 
-    ai_response = ask_ai(user_text, history)
-    logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
+        ai_response = ask_ai(user_text, history)
+        logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
 
-    # 保存到歷史
-    history.append((user_text, ai_response))
-    # 保持歷史長度不超過限制
-    if len(history) > MAX_HISTORY_LENGTH:
-        history.pop(0)
+        # 保存到歷史
+        history.append((user_text, ai_response))
+        # 保持歷史長度不超過限制
+        if len(history) > MAX_HISTORY_LENGTH:
+            history.pop(0)
 
-    # 追加到檔案記憶，支援日誌與長期記憶摘要
-    append_memory_entry(user_id, user_text, ai_response)
+        # 追加到檔案記憶，支援日誌與長期記憶摘要
+        append_memory_entry(user_id, user_text, ai_response)
 
-    try:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=ai_response)
-        )
-    except Exception:
-        logger.exception('Failed to send LINE reply')
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=ai_response)
+            )
+        except Exception:
+            logger.exception('Failed to send LINE reply')
+
+    # 使用獨立執行緒處理以避免 LINE webhook 逾時
+    thread = threading.Thread(target=process_message)
+    thread.start()
 
 
 if __name__ == '__main__':
