@@ -309,6 +309,9 @@ MEMORY_SUMMARIZE_ENABLED = os.getenv('MEMORY_SUMMARIZE_ENABLED', 'true').lower()
 # 紀錄每個用戶對話歷史，用於後續 prompt 的上下文延續
 conversation_history = {}
 
+# 紀錄目前可成功運作的 Gemini 模型，避免每次都從頭輪詢
+WORKING_GEMINI_MODEL = None
+
 # 保留的歷史訊息筆數上限，避免 prompt 過長影響性能
 MAX_HISTORY_LENGTH = 10
 
@@ -427,7 +430,9 @@ def query_course_info(user_input):
 
 def build_prompt(user_input, knowledge_content, history=None):
     prompt_parts = [
-        '你現在是「健言小龍蝦」，請參考以下社團知識回答問題。\n\n'
+        '你現在是「健言小龍蝦」，請參考以下社團知識回答問題。\n'
+        '若遇到不知道的問題，請不要直接回答不知道。請善用你的搜尋工具上網查詢，'
+        '並優先搜尋與「台北市健言社」相關的官方網站及網路社群媒體資料來回答。\n\n'
         f'知識內容：\n{knowledge_content}\n\n'
     ]
     
@@ -448,6 +453,7 @@ def build_prompt(user_input, knowledge_content, history=None):
 
 def ask_gemini(prompt):
     """使用 Google Gemini AI 回答"""
+    global WORKING_GEMINI_MODEL
     if not GENAI_AVAILABLE:
         logger.warning('genai module not available, skipping Gemini')
         return None
@@ -469,13 +475,27 @@ def ask_gemini(prompt):
             'gemini-2.0-flash-001'
         ]
         
+        # 若之前有成功使用的模型，將其移到列表最前面優先測試
+        if WORKING_GEMINI_MODEL in models_to_try:
+            models_to_try.remove(WORKING_GEMINI_MODEL)
+            models_to_try.insert(0, WORKING_GEMINI_MODEL)
+        
         for model_name in models_to_try:
             try:
                 logger.info('Trying Gemini model: %s', model_name)
-                model = genai.GenerativeModel(model_name)
+                
+                # 若模型名稱包含 gemini，則啟用 Google 搜尋 Grounding 功能
+                # 這樣能讓模型在上網查資料時，根據提示詞自行搜尋
+                tools = 'google_search_retrieval' if 'gemini' in model_name else None
+                model = genai.GenerativeModel(model_name, tools=tools)
+                
                 response = model.generate_content(prompt, stream=False)
                 if response.text:
                     logger.info('Gemini (%s) reply length=%s', model_name, len(response.text))
+                    # 紀錄目前成功運作的模型
+                    if WORKING_GEMINI_MODEL != model_name:
+                        WORKING_GEMINI_MODEL = model_name
+                        logger.info('Cached working Gemini model: %s', WORKING_GEMINI_MODEL)
                     return response.text
                 else:
                     logger.warning('Gemini (%s) returned empty response', model_name)
