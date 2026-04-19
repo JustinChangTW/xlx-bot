@@ -4,6 +4,7 @@ import logging
 import traceback
 import subprocess
 import datetime
+import re
 from flask import Flask, request, abort, jsonify
 from urllib.parse import urlparse, urlunparse
 import requests
@@ -251,7 +252,8 @@ def get_knowledge_files():
         USER_FILE,
         LONG_TERM_MEMORY_FILE,
         'skills.md',
-        'courses.md'
+        'courses.md',
+        'learned_knowledge.txt'
     ]
     for days_ago in range(DAILY_MEMORY_LOOKBACK_DAYS):
         potential_files.append(get_daily_memory_path(days_ago))
@@ -431,8 +433,12 @@ def query_course_info(user_input):
 def build_prompt(user_input, knowledge_content, history=None):
     prompt_parts = [
         '你現在是「健言小龍蝦」，請參考以下社團知識回答問題。\n'
-        '若遇到不知道的問題，請不要直接回答不知道。請善用你的搜尋工具上網查詢，'
-        '並優先搜尋與「台北市健言社」相關的官方網站及網路社群媒體資料來回答。\n\n'
+        '【重要規則】\n'
+        '1. 絕對不要捏造不存在的資訊（不可有幻覺）。如果你上網搜尋後還是找不到相關資料，請明確且老實地回答：「我目前查不到相關資訊」。\n'
+        '2. 若遇到不知道的問題，請善用搜尋工具上網查詢，並優先搜尋與「台北市健言社」相關的官方網站及網路社群媒體資料。\n'
+        '3. 如果你從用戶的對話中，或是上網搜尋後，獲得了未來可能會用到的「台北市健言社」新知識，請在你的回答最後加上：\n'
+        '<LEARNED>這裡寫下你想記住的具體事實（一句話或條列式）</LEARNED>\n'
+        '這會被系統自動記錄下來，成為你未來的知識。\n\n'
         f'知識內容：\n{knowledge_content}\n\n'
     ]
     
@@ -641,6 +647,22 @@ def handle_message(event):
         history = conversation_history[user_id]
 
         ai_response = ask_ai(user_text, history)
+        
+        # 提取學習到的新知識
+        learned_matches = re.findall(r'<LEARNED>(.*?)</LEARNED>', ai_response, re.IGNORECASE | re.DOTALL)
+        if learned_matches:
+            try:
+                with open('learned_knowledge.txt', 'a', encoding='utf-8') as f:
+                    for match in learned_matches:
+                        fact = match.strip()
+                        if fact:
+                            f.write(f"- {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}: {fact}\n")
+                            logger.info('Saved new knowledge: %s', fact)
+                # 移除回應中的標籤，不顯示給用戶
+                ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
+            except Exception as e:
+                logger.error('Failed to save learned knowledge: %s', e)
+
         logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
 
         # 保存到歷史
