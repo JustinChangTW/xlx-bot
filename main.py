@@ -5,16 +5,25 @@ import traceback
 import subprocess
 import datetime
 import re
+import threading
 from flask import Flask, request, abort, jsonify
 from urllib.parse import urlparse, urlunparse
 import requests
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    ApiClient,
+    Configuration,
+    MessagingApi,
+    ReplyMessageRequest,
+    TextMessage,
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 # 嘗試載入 Google Gemini 的 Python SDK，如果沒有安裝則後續會跳過 Gemini
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
@@ -33,6 +42,7 @@ app = Flask(__name__)
 LOG_FILE = os.getenv('LOG_FILE', 'xlx-bot.log')
 ENV_FILE = os.getenv('ENV_FILE', '.env')
 REQUIRED_ENV_VARS = ['LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET']
+LINE_API_BASE_URL = 'https://api.line.me/v2/bot/channel/webhook'
 
 logging.basicConfig(
     level=logging.INFO,
@@ -294,9 +304,19 @@ OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'qwen2:0.5b')
 KNOWLEDGE_FILE = os.getenv('KNOWLEDGE_FILE', 'knowledge.txt')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 LLM_CHAIN = os.getenv('LLM_CHAIN', 'ollama,gemini').split(',')
+PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').strip().rstrip('/')
+LINE_WEBHOOK_PATH = os.getenv('LINE_WEBHOOK_PATH', '/callback').strip() or '/callback'
+LINE_WEBHOOK_AUTO_UPDATE = os.getenv('LINE_WEBHOOK_AUTO_UPDATE', 'true').lower() in ('1', 'true', 'yes')
+WEBHOOK_SYNC_INTERVAL_SECONDS = int(os.getenv('WEBHOOK_SYNC_INTERVAL_SECONDS', '30'))
+WEBHOOK_SYNC_STARTUP_DELAY_SECONDS = int(os.getenv('WEBHOOK_SYNC_STARTUP_DELAY_SECONDS', '5'))
+LINE_WEBHOOK_TEST_ENABLED = os.getenv('LINE_WEBHOOK_TEST_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+NGROK_API_URL = os.getenv('NGROK_API_URL', '').strip()
+WEBHOOK_SYNC_TOKEN = os.getenv('WEBHOOK_SYNC_TOKEN', '').strip()
 
 if GENAI_AVAILABLE and GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    GEMINI_CLIENT = None
 
 # 設定檔案為先的記憶層架構
 MEMORY_DIR = os.getenv('MEMORY_DIR', 'memory')
@@ -313,6 +333,9 @@ conversation_history = {}
 
 # 紀錄目前可成功運作的 Gemini 模型，避免每次都從頭輪詢
 WORKING_GEMINI_MODEL = None
+
+# 紀錄最近一次同步後的 webhook URL，避免重複刷 API
+LAST_SYNCED_WEBHOOK_URL = None
 
 # 保留的歷史訊息筆數上限，避免 prompt 過長影響性能
 MAX_HISTORY_LENGTH = 10
@@ -334,9 +357,174 @@ if not check_knowledge_file():
 
 logger.info('All environment checks passed. Starting bot...')
 
-# 初始化 LINE Bot API 客戶端和 webhook handler
-line_bot_api = LineBotApi(LINE_ACCESS_TOKEN)
+# 初始化 LINE Bot API 客戶端設定和 webhook handler
+line_bot_configuration = Configuration(access_token=LINE_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+
+def build_line_headers():
+    return {
+        'Authorization': f'Bearer {LINE_ACCESS_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+
+
+def get_ngrok_api_candidates():
+    candidates = []
+    if NGROK_API_URL:
+        candidates.append(NGROK_API_URL)
+
+    candidates.extend([
+        'http://127.0.0.1:4040/api/tunnels',
+        'http://localhost:4040/api/tunnels',
+        'http://ngrok-tunnel:4040/api/tunnels'
+    ])
+
+    # 去重但保留順序
+    deduped = []
+    seen = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            deduped.append(candidate)
+            seen.add(candidate)
+    return deduped
+
+
+def discover_ngrok_public_url():
+    app_port = str(os.getenv('FLASK_PORT', '8080'))
+    last_error = None
+
+    for api_url in get_ngrok_api_candidates():
+        try:
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            payload = response.json()
+            tunnels = payload.get('tunnels', [])
+            if not tunnels:
+                continue
+
+            ranked = []
+            for tunnel in tunnels:
+                public_url = (tunnel or {}).get('public_url', '').strip()
+                config = (tunnel or {}).get('config', {})
+                addr = str(config.get('addr', ''))
+                proto = str((tunnel or {}).get('proto', ''))
+
+                if not public_url.startswith('https://'):
+                    continue
+
+                score = 0
+                if proto == 'https':
+                    score += 4
+                if app_port and app_port in addr:
+                    score += 2
+                if 'xlx-workstation' in addr or 'localhost' in addr or '127.0.0.1' in addr:
+                    score += 1
+
+                ranked.append((score, public_url))
+
+            if ranked:
+                ranked.sort(reverse=True)
+                selected_url = ranked[0][1].rstrip('/')
+                logger.info('Detected ngrok public URL from %s: %s', api_url, selected_url)
+                return selected_url
+        except Exception as e:
+            last_error = e
+
+    if last_error:
+        logger.warning('Unable to discover ngrok public URL: %s', last_error)
+    return None
+
+
+def get_desired_webhook_url():
+    base_url = PUBLIC_BASE_URL or discover_ngrok_public_url()
+    if not base_url:
+        return None
+
+    webhook_path = LINE_WEBHOOK_PATH if LINE_WEBHOOK_PATH.startswith('/') else f'/{LINE_WEBHOOK_PATH}'
+    return f'{base_url}{webhook_path}'
+
+
+def get_line_webhook_info():
+    response = requests.get(
+        f'{LINE_API_BASE_URL}/endpoint',
+        headers=build_line_headers(),
+        timeout=10
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def set_line_webhook_endpoint(endpoint_url):
+    response = requests.put(
+        f'{LINE_API_BASE_URL}/endpoint',
+        headers=build_line_headers(),
+        json={'endpoint': endpoint_url},
+        timeout=10
+    )
+    response.raise_for_status()
+    return response.json() if response.content else {}
+
+
+def test_line_webhook_endpoint(endpoint_url=None):
+    payload = {'endpoint': endpoint_url} if endpoint_url else {}
+    response = requests.post(
+        f'{LINE_API_BASE_URL}/test',
+        headers=build_line_headers(),
+        json=payload,
+        timeout=15
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def sync_line_webhook(force=False):
+    global LAST_SYNCED_WEBHOOK_URL
+
+    desired_url = get_desired_webhook_url()
+    if not desired_url:
+        logger.info('Webhook sync skipped because no public URL is available yet')
+        return False
+
+    if not force and LAST_SYNCED_WEBHOOK_URL == desired_url:
+        return False
+
+    try:
+        current_info = get_line_webhook_info()
+        current_url = (current_info or {}).get('endpoint', '').rstrip('/')
+
+        if not force and current_url == desired_url:
+            LAST_SYNCED_WEBHOOK_URL = desired_url
+            return False
+
+        logger.info('Updating LINE webhook URL to %s', desired_url)
+        set_line_webhook_endpoint(desired_url)
+        LAST_SYNCED_WEBHOOK_URL = desired_url
+
+        if LINE_WEBHOOK_TEST_ENABLED:
+            test_result = test_line_webhook_endpoint()
+            logger.info('LINE webhook test result: success=%s status=%s',
+                        test_result.get('success'),
+                        test_result.get('statusCode'))
+
+        return True
+    except Exception as e:
+        logger.warning('Failed to sync LINE webhook URL: %s', e)
+        return False
+
+
+def webhook_sync_worker():
+    if WEBHOOK_SYNC_STARTUP_DELAY_SECONDS > 0:
+        logger.info('Webhook sync worker will start in %s seconds', WEBHOOK_SYNC_STARTUP_DELAY_SECONDS)
+        threading.Event().wait(WEBHOOK_SYNC_STARTUP_DELAY_SECONDS)
+
+    while True:
+        try:
+            sync_line_webhook()
+        except Exception:
+            logger.exception('Unexpected error in webhook sync worker')
+
+        threading.Event().wait(max(WEBHOOK_SYNC_INTERVAL_SECONDS, 5))
 
 # 解析 Ollama API 回傳的結構，支援多種返回格式
 # 有些版本會直接回傳 'response' 或 'completion'，有些則包在 'choices' 裡面
@@ -463,18 +651,13 @@ def ask_gemini(prompt):
     if not GENAI_AVAILABLE:
         logger.warning('genai module not available, skipping Gemini')
         return None
-    if not GEMINI_API_KEY:
+    if not GEMINI_API_KEY or not GEMINI_CLIENT:
         logger.warning('GEMINI_API_KEY not set, skipping Gemini')
         return None
 
     try:
-        # 嘗試多個模型，按優先順序
-        # 先使用 Gemma 3 指令型模型，因為免費額度較充足
+        # 使用目前仍可用的 Gemini API 模型，避免已下線或不支援的舊名稱
         models_to_try = [
-            'gemma-3-27b-instruct',
-            'gemma-3-12b-instruct',
-            'gemma-3-4b-instruct',
-            'gemma-3-1b-instruct',
             'gemini-2.5-flash',
             'gemini-2.0-flash',
             'gemini-2.5-pro',
@@ -489,13 +672,19 @@ def ask_gemini(prompt):
         for model_name in models_to_try:
             try:
                 logger.info('Trying Gemini model: %s', model_name)
-                
-                # 若模型名稱包含 gemini，則啟用 Google 搜尋 Grounding 功能
-                # 這樣能讓模型在上網查資料時，根據提示詞自行搜尋
-                tools = 'google_search_retrieval' if 'gemini' in model_name else None
-                model = genai.GenerativeModel(model_name, tools=tools)
-                
-                response = model.generate_content(prompt, stream=False)
+
+                response = GEMINI_CLIENT.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        tools=[
+                            genai_types.Tool(
+                                google_search=genai_types.GoogleSearch()
+                            )
+                        ]
+                    )
+                )
+
                 if response.text:
                     logger.info('Gemini (%s) reply length=%s', model_name, len(response.text))
                     # 紀錄目前成功運作的模型
@@ -612,6 +801,19 @@ def health_check():
     return jsonify({'status': 'ok'})
 
 
+@app.route('/sync-webhook', methods=['POST'])
+def sync_webhook():
+    if not WEBHOOK_SYNC_TOKEN or request.headers.get('X-Webhook-Sync-Token', '') != WEBHOOK_SYNC_TOKEN:
+        return jsonify({'error': 'forbidden'}), 403
+
+    updated = sync_line_webhook(force=True)
+    desired_url = get_desired_webhook_url()
+    return jsonify({
+        'updated': updated,
+        'webhook_url': desired_url
+    })
+
+
 @app.route('/callback', methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
@@ -631,9 +833,8 @@ def callback():
 
 
 # LINE 消息事件處理器，收到文字訊息後呼叫 ask_ai 生成回覆
-import threading
 
-@handler.add(MessageEvent, message=TextMessage)
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     def process_message():
         user_text = event.message.text
@@ -675,10 +876,14 @@ def handle_message(event):
         append_memory_entry(user_id, user_text, ai_response)
 
         try:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=ai_response)
-            )
+            with ApiClient(line_bot_configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=ai_response)]
+                    )
+                )
         except Exception:
             logger.exception('Failed to send LINE reply')
 
@@ -690,5 +895,8 @@ def handle_message(event):
 if __name__ == '__main__':
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_PORT', '8080'))
+    if LINE_WEBHOOK_AUTO_UPDATE:
+        threading.Thread(target=webhook_sync_worker, daemon=True).start()
+        logger.info('LINE webhook auto-sync is enabled')
     logger.info('Starting Flask app on %s:%s', host, port)
     app.run(host=host, port=port)

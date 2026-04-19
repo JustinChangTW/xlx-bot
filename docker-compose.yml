@@ -37,6 +37,8 @@ services:
     image: ngrok/ngrok:latest
     container_name: ngrok-tunnel
     restart: always
+    ports:
+      - "4040:4040"
     environment:
       # 請確認這裡使用的是你剛取得的 Token
       - NGROK_AUTHTOKEN=1Y6tPLC6qz0I3zRWLNxvmJTk6KW_2sBRtgqFsFYzX6y7hihAQ

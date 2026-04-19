@@ -34,6 +34,10 @@
 - `OLLAMA_MODEL_NAME` （預設 `qwen2:0.5b`，可改為 `gemma:2b`、`gemma:3-1b` 等）
 - `MEMORY_DIR` （可選，預設 `memory`）
 - `MEMORY_SUMMARIZE_ENABLED` （可選，預設 `true`，啟用日誌摘要到 long-term memory）
+- `LINE_WEBHOOK_AUTO_UPDATE` （可選，預設 `true`，自動同步 LINE webhook URL）
+- `NGROK_API_URL` （可選，若未填會自動嘗試 `127.0.0.1:4040`、`localhost:4040`、`ngrok-tunnel:4040`）
+- `PUBLIC_BASE_URL` （可選，若你有固定公開網址，可直接指定，例如 `https://your-domain.example.com`）
+- `WEBHOOK_SYNC_TOKEN` （可選，用於手動呼叫 `/sync-webhook` 的保護 token）
 
 > 建議：如果你有 Gemini API 的免費額度，可優先使用 `gemma-3-27b-instruct` / `gemma-3-12b-instruct` / `gemma-3-4b-instruct` / `gemma-3-1b-instruct`，這些 Gemma 3 指令型模型的免費請求額度較高。
 
@@ -44,6 +48,9 @@ LINE_ACCESS_TOKEN=你的LINE_ACCESS_TOKEN
 LINE_CHANNEL_SECRET=你的LINE_CHANNEL_SECRET
 OLLAMA_API_URL=http://ollama-server:11434/api/generate
 MODEL_NAME=gemma:2b
+LINE_WEBHOOK_AUTO_UPDATE=true
+NGROK_API_URL=http://127.0.0.1:4040/api/tunnels
+WEBHOOK_SYNC_TOKEN=請換成你自己的安全字串
 ```
 > 注意：不要把 `.env` 公開到版本控制系統中。
 
@@ -90,8 +97,10 @@ sudo docker run -d --name xlx-bot --restart always -p 8080:8080 --env-file .env 
 
 - 應用程式日誌：`xlx-bot.log`
 - 健康檢查：`http://localhost:8080/health`
+- 手動同步 LINE webhook：`POST http://localhost:8080/sync-webhook` 並帶上 header `X-Webhook-Sync-Token: 你的 token`
 
 ## 其他備註
 
 - 如果你使用 Docker Compose，`docker-compose.yml` 會同時啟動 `ollama-server` 和 `xlx-workstation`。
+- `ngrok` 重新連線導致公開網址改變時，程式會定期偵測並自動把 LINE 的 webhook URL 更新成最新的 `https://.../callback`。
 - 若要偵錯 LINE webhook，可查看 `xlx-bot.log` 或容器日誌。
