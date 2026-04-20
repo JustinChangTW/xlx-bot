@@ -34,6 +34,17 @@
 - `OLLAMA_MODEL_NAME` （預設 `qwen2:0.5b`，可改為 `gemma:2b`、`gemma:3-1b` 等）
 - `MEMORY_DIR` （可選，預設 `memory`）
 - `MEMORY_SUMMARIZE_ENABLED` （可選，預設 `true`，啟用日誌摘要到 long-term memory）
+- `LOG_LEVEL` （可選，預設 `INFO`）
+- `LOG_MAX_BYTES` （可選，預設 `1048576`，單一 log 檔超過後自動輪替）
+- `LOG_BACKUP_COUNT` （可選，預設 `3`，保留幾份舊 log）
+- `ROUTER_ENABLED` （可選，預設 `true`，啟用智慧分類器）
+- `ROUTER_MODEL_NAME` （可選，預設與 `OLLAMA_MODEL_NAME` 相同，用本地模型做 `GENERAL/EXPERT/LOCAL` 分類）
+- `GROQ_API_KEY` （可選，一般技巧型請求的高速路由）
+- `GROQ_MODEL_NAME` （可選，例如依你的 Groq 帳號可用模型設定）
+- `XAI_API_KEY` （可選，供 `x.ai / Grok` 路由使用）
+- `XAI_MODEL_NAME` （可選，預設 `grok-4.20-reasoning`）
+- `GITHUB_MODELS_TOKEN` （可選，供複雜邏輯與寫程式任務使用）
+- `GITHUB_MODELS_NAME` （可選，預設 `openai/gpt-4o`）
 - `LINE_WEBHOOK_AUTO_UPDATE` （可選，預設 `true`，自動同步 LINE webhook URL）
 - `NGROK_API_URL` （可選，若未填會自動嘗試 `127.0.0.1:4040`、`localhost:4040`、`ngrok-tunnel:4040`）
 - `PUBLIC_BASE_URL` （可選，若你有固定公開網址，可直接指定，例如 `https://your-domain.example.com`）
@@ -48,6 +59,17 @@ LINE_ACCESS_TOKEN=你的LINE_ACCESS_TOKEN
 LINE_CHANNEL_SECRET=你的LINE_CHANNEL_SECRET
 OLLAMA_API_URL=http://ollama-server:11434/api/generate
 MODEL_NAME=gemma:2b
+LOG_LEVEL=INFO
+LOG_MAX_BYTES=1048576
+LOG_BACKUP_COUNT=3
+ROUTER_ENABLED=true
+ROUTER_MODEL_NAME=llama3.2:3b
+GROQ_API_KEY=你的GROQ金鑰
+GROQ_MODEL_NAME=你的Groq模型名稱
+XAI_API_KEY=你的xAI金鑰
+XAI_MODEL_NAME=grok-4.20-reasoning
+GITHUB_MODELS_TOKEN=你的GitHubModelsToken
+GITHUB_MODELS_NAME=openai/gpt-4o
 LINE_WEBHOOK_AUTO_UPDATE=true
 NGROK_API_URL=http://127.0.0.1:4040/api/tunnels
 WEBHOOK_SYNC_TOKEN=請換成你自己的安全字串
@@ -103,4 +125,6 @@ sudo docker run -d --name xlx-bot --restart always -p 8080:8080 --env-file .env 
 
 - 如果你使用 Docker Compose，`docker-compose.yml` 會同時啟動 `ollama-server` 和 `xlx-workstation`。
 - `ngrok` 重新連線導致公開網址改變時，程式會定期偵測並自動把 LINE 的 webhook URL 更新成最新的 `https://.../callback`。
+- 智慧調配邏輯預設為：`GENERAL -> Groq -> xAI -> GitHub Models -> Gemini -> Ollama`、`EXPERT -> GitHub Models -> xAI -> Gemini -> Ollama -> Groq`、`LOCAL -> Ollama`。
+- 若 `Groq`、`xAI` 或 `GitHub Models` 未設定金鑰或暫時失敗，系統會自動避讓到下一個可用 provider。
 - 若要偵錯 LINE webhook，可查看 `xlx-bot.log` 或容器日誌。

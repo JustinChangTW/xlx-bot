@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+from logging.handlers import RotatingFileHandler
 import traceback
 import subprocess
 import datetime
@@ -41,17 +42,29 @@ app = Flask(__name__)
 # 日誌、.env 檔案和必要環境變數設定
 LOG_FILE = os.getenv('LOG_FILE', 'xlx-bot.log')
 ENV_FILE = os.getenv('ENV_FILE', '.env')
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+LOG_MAX_BYTES = int(os.getenv('LOG_MAX_BYTES', str(1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '3'))
 REQUIRED_ENV_VARS = ['LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET']
 LINE_API_BASE_URL = 'https://api.line.me/v2/bot/channel/webhook'
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_FILE, encoding='utf-8')
-    ]
+log_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(log_formatter)
+file_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=LOG_MAX_BYTES,
+    backupCount=LOG_BACKUP_COUNT,
+    encoding='utf-8'
 )
+file_handler.setFormatter(log_formatter)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+root_logger.handlers.clear()
+root_logger.addHandler(stream_handler)
+root_logger.addHandler(file_handler)
+
 logger = logging.getLogger(__name__)
 
 # 讀取 .env 檔案的輔助函式，將環境變數載入 os.environ
@@ -304,6 +317,18 @@ OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'qwen2:0.5b')
 KNOWLEDGE_FILE = os.getenv('KNOWLEDGE_FILE', 'knowledge.txt')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 LLM_CHAIN = os.getenv('LLM_CHAIN', 'ollama,gemini').split(',')
+ROUTER_MODEL_NAME = os.getenv('ROUTER_MODEL_NAME', OLLAMA_MODEL_NAME)
+ROUTER_ENABLED = os.getenv('ROUTER_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '').strip()
+GROQ_API_URL = os.getenv('GROQ_API_URL', 'https://api.groq.com/openai/v1/chat/completions').strip()
+GROQ_MODEL_NAME = os.getenv('GROQ_MODEL_NAME', '').strip()
+XAI_API_KEY = os.getenv('XAI_API_KEY', '').strip()
+XAI_API_URL = os.getenv('XAI_API_URL', 'https://api.x.ai/v1/responses').strip()
+XAI_MODEL_NAME = os.getenv('XAI_MODEL_NAME', 'grok-4.20-reasoning').strip()
+GITHUB_MODELS_TOKEN = os.getenv('GITHUB_MODELS_TOKEN', '').strip()
+GITHUB_MODELS_API_URL = os.getenv('GITHUB_MODELS_API_URL', 'https://models.github.ai/inference/chat/completions').strip()
+GITHUB_MODELS_API_VERSION = os.getenv('GITHUB_MODELS_API_VERSION', '2026-03-10').strip()
+GITHUB_MODELS_NAME = os.getenv('GITHUB_MODELS_NAME', 'openai/gpt-4o').strip()
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').strip().rstrip('/')
 LINE_WEBHOOK_PATH = os.getenv('LINE_WEBHOOK_PATH', '/callback').strip() or '/callback'
 LINE_WEBHOOK_AUTO_UPDATE = os.getenv('LINE_WEBHOOK_AUTO_UPDATE', 'true').lower() in ('1', 'true', 'yes')
@@ -336,9 +361,14 @@ WORKING_GEMINI_MODEL = None
 
 # 紀錄最近一次同步後的 webhook URL，避免重複刷 API
 LAST_SYNCED_WEBHOOK_URL = None
+LAST_DETECTED_NGROK_URL = None
 
 # 保留的歷史訊息筆數上限，避免 prompt 過長影響性能
 MAX_HISTORY_LENGTH = 10
+
+ROUTE_GENERAL = 'GENERAL'
+ROUTE_EXPERT = 'EXPERT'
+ROUTE_LOCAL = 'LOCAL'
 
 
 # 啟動前檢查流程：Ollama 服務、模型是否可用，以及知識庫檔案是否存在
@@ -391,6 +421,7 @@ def get_ngrok_api_candidates():
 
 
 def discover_ngrok_public_url():
+    global LAST_DETECTED_NGROK_URL
     app_port = str(os.getenv('FLASK_PORT', '8080'))
     last_error = None
 
@@ -426,7 +457,11 @@ def discover_ngrok_public_url():
             if ranked:
                 ranked.sort(reverse=True)
                 selected_url = ranked[0][1].rstrip('/')
-                logger.info('Detected ngrok public URL from %s: %s', api_url, selected_url)
+                if LAST_DETECTED_NGROK_URL != selected_url:
+                    logger.info('Detected ngrok public URL from %s: %s', api_url, selected_url)
+                    LAST_DETECTED_NGROK_URL = selected_url
+                else:
+                    logger.debug('ngrok public URL unchanged: %s', selected_url)
                 return selected_url
         except Exception as e:
             last_error = e
@@ -552,6 +587,173 @@ def extract_ollama_response(payload):
     return None
 
 
+def extract_xai_response(payload):
+    if not isinstance(payload, dict):
+        return None
+
+    if isinstance(payload.get('output_text'), str) and payload.get('output_text').strip():
+        return payload['output_text']
+
+    output_items = payload.get('output')
+    if isinstance(output_items, list):
+        chunks = []
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            content_items = item.get('content')
+            if not isinstance(content_items, list):
+                continue
+            for content in content_items:
+                if not isinstance(content, dict):
+                    continue
+                text_value = content.get('text')
+                if isinstance(text_value, str) and text_value.strip():
+                    chunks.append(text_value)
+        if chunks:
+            return '\n'.join(chunks).strip()
+
+    return extract_ollama_response(payload)
+
+
+def ask_ollama_with_model(prompt, model_name):
+    """使用指定的本地 Ollama 模型回答"""
+    try:
+        response = requests.post(
+            OLLAMA_API_URL,
+            json={
+                'model': model_name,
+                'prompt': prompt,
+                'stream': False
+            },
+            timeout=60
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError:
+            body = response.text[:2000]
+            logger.error(
+                'Ollama HTTP error status=%s model=%s response=%s',
+                response.status_code,
+                model_name,
+                body
+            )
+            return None
+
+        data = response.json()
+        ai_text = extract_ollama_response(data)
+        if ai_text:
+            logger.info('Ollama model %s reply length=%s', model_name, len(ai_text))
+            return ai_text
+        logger.warning('Ollama model %s returned empty response', model_name)
+        return None
+    except requests.RequestException as e:
+        logger.error('Ollama request failed for model %s: %s', model_name, e)
+        return None
+    except ValueError as e:
+        logger.error('Invalid JSON from Ollama model %s: %s', model_name, e)
+        return None
+
+
+def ask_openai_compatible_chat(api_url, api_key, model_name, prompt, extra_headers=None):
+    if not api_key or not model_name:
+        return None
+
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
+    payload = {
+        'model': model_name,
+        'messages': [
+            {'role': 'system', 'content': '你是健言小龍蝦的推理引擎，請使用繁體中文回覆。'},
+            {'role': 'user', 'content': prompt}
+        ],
+        'temperature': 0.4,
+        'stream': False
+    }
+
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError:
+            logger.warning('Provider HTTP error url=%s model=%s status=%s body=%s',
+                           api_url,
+                           model_name,
+                           response.status_code,
+                           response.text[:1000])
+            return None
+
+        data = response.json()
+        return extract_ollama_response(data)
+    except requests.RequestException as e:
+        logger.warning('Provider request failed url=%s model=%s error=%s', api_url, model_name, e)
+        return None
+    except ValueError as e:
+        logger.warning('Provider JSON parse failed url=%s model=%s error=%s', api_url, model_name, e)
+        return None
+
+
+def ask_xai(prompt):
+    if not XAI_API_KEY or not XAI_MODEL_NAME:
+        return None
+
+    headers = {
+        'Authorization': f'Bearer {XAI_API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    payload = {
+        'model': XAI_MODEL_NAME,
+        'input': prompt
+    }
+
+    try:
+        response = requests.post(XAI_API_URL, headers=headers, json=payload, timeout=60)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError:
+            logger.warning('xAI HTTP error url=%s model=%s status=%s body=%s',
+                           XAI_API_URL,
+                           XAI_MODEL_NAME,
+                           response.status_code,
+                           response.text[:1000])
+            return None
+
+        data = response.json()
+        return extract_xai_response(data)
+    except requests.RequestException as e:
+        logger.warning('xAI request failed model=%s error=%s', XAI_MODEL_NAME, e)
+        return None
+    except ValueError as e:
+        logger.warning('xAI JSON parse failed model=%s error=%s', XAI_MODEL_NAME, e)
+        return None
+
+
+def ask_groq(prompt):
+    return ask_openai_compatible_chat(
+        GROQ_API_URL,
+        GROQ_API_KEY,
+        GROQ_MODEL_NAME,
+        prompt
+    )
+
+
+def ask_github_models(prompt):
+    return ask_openai_compatible_chat(
+        GITHUB_MODELS_API_URL,
+        GITHUB_MODELS_TOKEN,
+        GITHUB_MODELS_NAME,
+        prompt,
+        extra_headers={
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': GITHUB_MODELS_API_VERSION
+        }
+    )
+
+
 # 嘗試從台北市健言社官網取得課程相關資訊，作為回答參考來源
 def query_course_info(user_input):
     """
@@ -613,6 +815,93 @@ def query_course_info(user_input):
         logger.error('An unexpected error occurred during web scraping: %s', e)
     
     return None
+
+
+def classify_request_with_rules(user_input):
+    text = (user_input or '').lower()
+
+    local_keywords = [
+        '私密', '隱私', '保密', '機密', '內部', '個資', '公司背景', '講師手冊',
+        '學員回饋', '回饋紀錄', '內網', '私房教材', 'sensitive', 'private'
+    ]
+    expert_keywords = [
+        '程式', 'code', 'python', 'javascript', 'bug', '除錯', 'debug',
+        '架構', '邏輯', '辯論', '講稿架構', '深度講評', '分析', '設計',
+        '演算法', 'api', 'prompt', 'router', 'routing'
+    ]
+    general_keywords = [
+        '開場', '破冰', '金句', '手勢', '聲音', '文案', '海報', '修辭',
+        '短文', '標題', '口號'
+    ]
+
+    if any(keyword in text for keyword in local_keywords):
+        return ROUTE_LOCAL, 'keyword:private'
+    if any(keyword in text for keyword in expert_keywords):
+        return ROUTE_EXPERT, 'keyword:expert'
+    if any(keyword in text for keyword in general_keywords):
+        return ROUTE_GENERAL, 'keyword:general'
+    return None, None
+
+
+def classify_request_with_model(user_input):
+    if not ROUTER_ENABLED:
+        return None, None
+
+    router_prompt = (
+        '你是請求分類器，請只回傳一個標籤，不要解釋。\n'
+        '可選標籤只有：GENERAL、EXPERT、LOCAL。\n'
+        '判斷規則：\n'
+        '- GENERAL：一般閒聊、技巧型訓練、速度優先、需要多樣點子。\n'
+        '- EXPERT：複雜邏輯、程式、辯論推理、講稿架構、深度分析。\n'
+        '- LOCAL：涉及私密資料、公司背景、學員回饋、講師手冊、不可外送資訊。\n'
+        f'使用者請求：{user_input}\n'
+        '請只輸出 GENERAL 或 EXPERT 或 LOCAL'
+    )
+    result = ask_ollama_with_model(router_prompt, ROUTER_MODEL_NAME)
+    if not result:
+        return None, None
+
+    label = result.strip().upper()
+    for candidate in (ROUTE_GENERAL, ROUTE_EXPERT, ROUTE_LOCAL):
+        if candidate in label:
+            return candidate, 'model:router'
+    return None, None
+
+
+def classify_request(user_input):
+    rule_label, rule_reason = classify_request_with_rules(user_input)
+    if rule_label:
+        return rule_label, rule_reason
+
+    model_label, model_reason = classify_request_with_model(user_input)
+    if model_label:
+        return model_label, model_reason
+
+    return ROUTE_GENERAL, 'default:general'
+
+
+def get_route_provider_chain(route_label):
+    route_map = {
+        ROUTE_GENERAL: ['groq', 'xai', 'github', 'gemini', 'ollama'],
+        ROUTE_EXPERT: ['github', 'xai', 'gemini', 'ollama', 'groq'],
+        ROUTE_LOCAL: ['ollama']
+    }
+    return route_map.get(route_label, ['ollama', 'gemini'])
+
+
+def build_route_prompt(route_label, user_input, knowledge_content, history=None):
+    route_note_map = {
+        ROUTE_GENERAL: '本題屬於一般訓練或技巧型需求，請優先提供快速、實用、多樣的建議。',
+        ROUTE_EXPERT: '本題屬於深度分析或複雜邏輯需求，請優先提供嚴謹、條理清楚、可推演的回答。',
+        ROUTE_LOCAL: '本題涉及私密或內部資料，請以保密、謹慎、不外送敏感資訊為最高原則。'
+    }
+    routed_knowledge = (
+        f"--- 請求路由判定 ---\n"
+        f"分類：{route_label}\n"
+        f"原則：{route_note_map.get(route_label, '')}\n\n"
+        f"{knowledge_content}"
+    )
+    return build_prompt(user_input, routed_knowledge, history)
 
 
 # 將知識庫內容、對話歷史與使用者問題組裝成一個完整的 prompt
@@ -710,42 +999,7 @@ def ask_gemini(prompt):
 
 def ask_ollama(prompt):
     """使用本地 Ollama AI 回答"""
-    try:
-        response = requests.post(
-            OLLAMA_API_URL,
-            json={
-                'model': OLLAMA_MODEL_NAME,
-                'prompt': prompt,
-                'stream': False
-            },
-            timeout=60
-        )
-        try:
-            response.raise_for_status()
-        except requests.HTTPError:
-            body = response.text[:2000]
-            logger.error(
-                'Ollama HTTP error status=%s model=%s response=%s',
-                response.status_code,
-                OLLAMA_MODEL_NAME,
-                body
-            )
-            return None
-
-        data = response.json()
-        ai_text = extract_ollama_response(data)
-        if ai_text:
-            logger.info('Ollama reply length=%s', len(ai_text))
-            return ai_text
-        else:
-            logger.warning('Ollama returned empty response')
-            return None
-    except requests.RequestException as e:
-        logger.error('Ollama request failed: %s', e)
-        return None
-    except ValueError as e:
-        logger.error('Invalid JSON from Ollama: %s', e)
-        return None
+    return ask_ollama_with_model(prompt, OLLAMA_MODEL_NAME)
 
 
 # 主問答函式，先載入知識庫內容，再選擇最適合的 LLM 進行回應
@@ -761,38 +1015,42 @@ def ask_ai(user_input, history=None):
     if course_info:
         kb_content += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
 
-    prompt = build_prompt(user_input, kb_content, history)
-    
-    # 按照 LLM_CHAIN 優先順序嘗試，最多重試3次
-    logger.info('Trying LLM chain: %s', LLM_CHAIN)
+    route_label, route_reason = classify_request(user_input)
+    prompt = build_route_prompt(route_label, user_input, kb_content, history)
+    provider_chain = get_route_provider_chain(route_label)
+
+    logger.info('Router selected route=%s reason=%s providers=%s', route_label, route_reason, provider_chain)
+
+    # 依照路由規則嘗試，最多重試3次
     for attempt in range(3):
-        logger.info('Attempt %d/3', attempt + 1)
-        for llm_name in LLM_CHAIN:
-            llm_name = llm_name.strip().lower()
-            logger.info('Attempting %s...', llm_name)
-            
-            if llm_name == 'gemini':
+        logger.info('Route attempt %d/3 route=%s', attempt + 1, route_label)
+        for provider_name in provider_chain:
+            logger.info('Attempting provider=%s route=%s', provider_name, route_label)
+
+            result = None
+            if provider_name == 'groq':
+                result = ask_groq(prompt)
+            elif provider_name == 'xai':
+                result = ask_xai(prompt)
+            elif provider_name == 'github':
+                result = ask_github_models(prompt)
+            elif provider_name == 'gemini':
                 result = ask_gemini(prompt)
-                if result:
-                    logger.info('Success with Gemini')
-                    return result
-                else:
-                    logger.warning('Gemini failed, trying next in chain')
-                    
-            elif llm_name == 'ollama':
+            elif provider_name == 'ollama':
                 result = ask_ollama(prompt)
-                if result:
-                    logger.info('Success with Ollama')
-                    return result
-                else:
-                    logger.warning('Ollama failed, trying next in chain')
-        
-        logger.warning('All LLMs failed in attempt %d, retrying...', attempt + 1)
+
+            if result:
+                logger.info('Success with provider=%s route=%s', provider_name, route_label)
+                return result
+
+            logger.warning('Provider failed provider=%s route=%s, trying next fallback', provider_name, route_label)
+
+        logger.warning('All providers failed in attempt %d for route=%s, retrying...', attempt + 1, route_label)
         import time
         time.sleep(2)  # 等待2秒後重試
     
     # 所有嘗試都失敗
-    logger.error('All LLMs failed after 3 attempts: %s', LLM_CHAIN)
+    logger.error('All providers failed after 3 attempts for route=%s chain=%s', route_label, provider_chain)
     return '小龍蝦無法連線到任何 AI 服務，請稍後再試。'
 
 
