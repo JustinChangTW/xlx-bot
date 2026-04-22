@@ -1,5 +1,12 @@
 import datetime
 import os
+from dataclasses import dataclass
+
+
+@dataclass
+class KnowledgeSection:
+    path: str
+    content: str
 
 
 def ensure_memory_dirs(config, logger):
@@ -56,15 +63,12 @@ def get_knowledge_files(config, logger):
         config.agents_file,
         config.user_file,
         config.long_term_memory_file,
+        config.knowledge_file,
         'courses.md',
         'learned_knowledge.txt'
     ]
 
-    knowledge_files = list_markdown_files('knowledge')
-    if knowledge_files:
-        potential_files.extend(knowledge_files)
-    else:
-        potential_files.append(config.knowledge_file)
+    potential_files.extend(list_markdown_files('knowledge'))
 
     skill_files = list_markdown_files('skills')
     if skill_files:
@@ -78,6 +82,11 @@ def get_knowledge_files(config, logger):
     existing_files = [f for f in potential_files if f and os.path.exists(f)]
     logger.debug('Found potential knowledge files: %s', existing_files)
     return existing_files
+
+
+def is_memory_like_file(config, file_path):
+    normalized = file_path.replace('\\', '/')
+    return normalized.startswith(config.memory_dir) or '/memory/' in normalized or normalized.endswith('memory.md')
 
 
 def check_knowledge_file(config, logger):
@@ -96,26 +105,32 @@ def check_knowledge_file(config, logger):
     return False
 
 
-def load_knowledge_base(config, logger):
+def load_knowledge_sections(config, logger):
     ensure_memory_dirs(config, logger)
+    sections = []
     kb_files = get_knowledge_files(config, logger)
-    all_content = []
 
     for kb_file in kb_files:
-        # memory 類檔案較容易暴增，這裡額外限制單檔載入量。
-        max_chars = 15000 if kb_file.startswith(config.memory_dir) or 'memory' in kb_file else None
+        max_chars = 15000 if is_memory_like_file(config, kb_file) else None
         content = read_text_file(kb_file, logger, max_chars=max_chars)
-        if content:
-            all_content.append(f"--- 來自 {kb_file} ---\n{content}")
-            logger.info('Loaded knowledge file: %s (%d chars)', kb_file, len(content))
-        elif os.path.exists(kb_file):
-            logger.warning('Knowledge file %s is empty', kb_file)
+        if not content:
+            if os.path.exists(kb_file):
+                logger.warning('Knowledge file %s is empty', kb_file)
+            continue
 
-    if not all_content:
+        sections.append(KnowledgeSection(path=kb_file, content=content))
+        logger.info('Loaded knowledge section: %s (%d chars)', kb_file, len(content))
+
+    return sections
+
+
+def load_knowledge_base(config, logger):
+    sections = load_knowledge_sections(config, logger)
+    if not sections:
         logger.error('No knowledge files with content were loaded!')
         return None
 
-    combined = '\n\n'.join(all_content)
+    combined = '\n\n'.join([f"--- 來自 {section.path} ---\n{section.content}" for section in sections])
     logger.info('Total knowledge base size: %d chars', len(combined))
     return combined
 

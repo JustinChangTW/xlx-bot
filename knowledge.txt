@@ -1,12 +1,28 @@
-# 台北市健言社知識索引
+# 小龍蝦社團知識庫入口（Index）
 
-知識內容已模組化拆分到 `knowledge/` 目錄，採用「一個主題一個檔」設計。
+本檔是索引入口，不放完整內容。實際內容請維護在 `knowledge/` 目錄。
 
-目前包含：
-- `knowledge/10_club_overview.md`
-- `knowledge/20_social_links.md`
-- `knowledge/30_training_system.md`
-- `knowledge/40_recent_schedule.md`
-- `knowledge/50_contact_info.md`
+## 載入原則
+- 機器人會自動載入 `knowledge/` 下所有 `.md`。
+- 請用「一主題一檔」維護，避免單一巨型檔案難以檢索。
+- 每個檔案需區分：
+  - 目前資訊（Current）
+  - 歷史資訊（Historical）
+  - 待補資料（TODO / Gap）
 
-主程式會自動載入 `knowledge/` 目錄下的所有 `.md` 檔案。
+## 檔案目錄
+- `knowledge/club_manual.md`：社團手冊（規則/課程/組織優先來源）
+- `knowledge/10_club_basic.md`：社團基本資料
+- `knowledge/20_history.md`：社團沿革與里程碑
+- `knowledge/30_org_structure.md`：組織架構與組別職責
+- `knowledge/40_current_officers.md`：目前幹部名單（可留待補）
+- `knowledge/50_programs_and_events.md`：課程與活動（近期/歷史）
+- `knowledge/60_announcements.md`：公告與報名資訊
+- `knowledge/70_culture.md`：花絮與文化
+- `knowledge/80_faq.md`：常見問答
+- `knowledge/99_data_todo.md`：資料缺口與維護 TODO
+
+## 編修規範（摘要）
+- 禁止補寫未提供的姓名、時間、活動名稱。
+- 沒有來源就填 `[目前知識庫缺少此資訊]`。
+- 與時間相關欄位需標示更新日期（YYYY-MM-DD）。
