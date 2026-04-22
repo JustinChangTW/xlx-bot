@@ -200,6 +200,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
         f'知識內容：\n{knowledge_content or "[無可用知識片段]"}\n\n'
     ]
+    if lessons_guidance:
+        prompt_parts.append(f'回答前套用 Lessons Learned：\n{lessons_guidance}\n\n')
     if history:
         prompt_parts.append('對話歷史（僅供語氣連貫，不可覆蓋知識事實）：\n')
         for i, (user_msg, ai_msg) in enumerate(history[-state.max_history_length:], 1):
