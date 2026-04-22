@@ -6,7 +6,7 @@ def ensure_memory_dirs(config, logger):
     # 每日記憶會寫進 memory/，啟動或讀寫前先確保目錄存在。
     try:
         os.makedirs(config.memory_dir, exist_ok=True)
-        logger.info('Memory directory ready: %s', config.memory_dir)
+        logger.debug('Memory directory ready: %s', config.memory_dir)
     except Exception as e:
         logger.error('Cannot create memory directory %s: %s', config.memory_dir, e)
 
@@ -27,7 +27,7 @@ def read_text_file(file_path, logger, max_chars=None):
                 return None
             if max_chars and len(content) > max_chars:
                 # 記憶檔可能很大，超過上限時只保留尾端較新的內容進 prompt。
-                logger.info('Truncating %s to last %s chars for prompt', file_path, max_chars)
+                logger.debug('Truncating %s to last %s chars for prompt', file_path, max_chars)
                 return content[-max_chars:]
             return content
     except Exception as e:
@@ -107,7 +107,7 @@ def load_knowledge_base(config, logger):
         content = read_text_file(kb_file, logger, max_chars=max_chars)
         if content:
             all_content.append(f"--- 來自 {kb_file} ---\n{content}")
-            logger.info('Loaded knowledge file: %s (%d chars)', kb_file, len(content))
+            logger.debug('Loaded knowledge file: %s (%d chars)', kb_file, len(content))
         elif os.path.exists(kb_file):
             logger.warning('Knowledge file %s is empty', kb_file)
 
@@ -116,7 +116,7 @@ def load_knowledge_base(config, logger):
         return None
 
     combined = '\n\n'.join(all_content)
-    logger.info('Total knowledge base size: %d chars', len(combined))
+    logger.debug('Total knowledge base size: %d chars', len(combined))
     return combined
 
 
@@ -171,7 +171,7 @@ def append_memory_entry(config, logger, ask_ollama_func, user_id, user_input, ai
             f.write('### {} user_id={}\n'.format(datetime.datetime.now().isoformat(), user_id or 'unknown'))
             f.write('- 用戶：{}\n'.format(user_input.replace('\n', ' ')))
             f.write('- 小龍蝦：{}\n\n'.format(ai_response.replace('\n', ' ')))
-        logger.info('Appended conversation to %s', daily_path)
+        logger.debug('Appended conversation to %s', daily_path)
         refresh_memory_if_needed(config, logger, ask_ollama_func)
     except Exception as e:
         logger.error('Cannot append memory entry: %s', e)

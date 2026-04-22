@@ -245,7 +245,7 @@ class ProviderService:
 
             for model_name in models_to_try:
                 try:
-                    self.logger.info('Trying Gemini model: %s', model_name)
+                    self.logger.debug('Trying Gemini model: %s', model_name)
                     response = self.gemini_client.models.generate_content(
                         model=model_name,
                         contents=prompt,
@@ -280,7 +280,7 @@ class ProviderService:
         try:
             # 只有問題和課程/公告有關時，才額外抓官網內容補充上下文。
             url = 'https://tmc1974.com/'
-            self.logger.info('Querying latest courses from %s for: %s', url, user_input)
+            self.logger.debug('Querying latest courses from %s for: %s', url, user_input)
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }

@@ -77,7 +77,7 @@ class BotApplication:
             # LINE webhook 需要用簽章驗證請求是否真的來自 LINE。
             signature = request.headers.get('X-Line-Signature', '')
             body = request.get_data(as_text=True)
-            self.logger.info('Received LINE webhook body=%s signature=%s', body[:200], signature)
+            self.logger.debug('Received LINE webhook body_length=%s signature_present=%s', len(body), bool(signature))
             try:
                 self.handler.handle(body, signature)
             except InvalidSignatureError:

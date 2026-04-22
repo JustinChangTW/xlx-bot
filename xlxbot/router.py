@@ -116,9 +116,9 @@ def ask_ai(config, state, logger, providers, user_input, history=None):
 
     # 每個 provider 失敗就往下 fallback，整條鏈失敗才整體重試。
     for attempt in range(3):
-        logger.info('Route attempt %d/3 route=%s', attempt + 1, route_label)
+        logger.debug('Route attempt %d/3 route=%s', attempt + 1, route_label)
         for provider_name in provider_chain:
-            logger.info('Attempting provider=%s route=%s', provider_name, route_label)
+            logger.debug('Attempting provider=%s route=%s', provider_name, route_label)
             result = None
             if provider_name == 'groq':
                 result = providers.ask_groq(prompt)
