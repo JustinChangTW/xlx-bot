@@ -1,6 +1,10 @@
 # 系統架構分析
 
-以下為可正常渲染的 Mermaid 架構圖：
+本文件提供 Mermaid 可編輯版本，便於版本控管與後續維護。
+
+> 備註：因 PR 流程限制（不納入二進位檔），本次僅保留文字與 Mermaid 原始碼。
+
+## Mermaid（可編輯版本）
 
 ```mermaid
 flowchart TD
