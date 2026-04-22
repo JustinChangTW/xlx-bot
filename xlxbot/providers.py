@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -269,8 +270,111 @@ class ProviderService:
             self.logger.error('Gemini request failed: %s', e)
             return None
 
+    def _build_browser_headers(self):
+        return {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+    def _extract_requested_schedule_dates(self, user_input):
+        text = user_input or ''
+        matches = []
+
+        for month, day in re.findall(r'(\d{1,2})\s*/\s*(\d{1,2})', text):
+            matches.append(f'{int(month)}/{int(day)}')
+
+        for month, day in re.findall(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', text):
+            matches.append(f'{int(month)}/{int(day)}')
+
+        normalized = []
+        seen = set()
+        for item in matches:
+            if not item:
+                continue
+            if item not in seen:
+                seen.add(item)
+                normalized.append(item)
+        return normalized
+
+    def _query_schedule_page(self, user_input):
+        requested_dates = self._extract_requested_schedule_dates(user_input)
+        if not requested_dates:
+            return None
+
+        url = 'https://tmc1974.com/schedule/'
+        self.logger.debug('Querying schedule page %s for requested_dates=%s', url, requested_dates)
+        response = requests.get(url, timeout=10, headers=self._build_browser_headers())
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'lxml')
+        table = soup.find('table')
+        if not table:
+            self.logger.warning('Could not find schedule table on %s', url)
+            return None
+
+        body_rows = table.find_all('tr')
+        for row in body_rows:
+            cells = [cell.get_text(' ', strip=True) for cell in row.find_all(['th', 'td'])]
+            if len(cells) < 6:
+                continue
+            date_text = cells[1]
+            if date_text not in requested_dates:
+                continue
+
+            opening_topic = cells[2]
+            tm_topic = cells[3]
+            general_evaluator = cells[4]
+            training_topic = cells[5]
+            lecturer = cells[6] if len(cells) > 6 else '[未提供]'
+
+            summary_lines = [
+                f'根據台北市健言社官網課表（{url}），{date_text} 的課程資料如下：',
+                f'- 開場主題：{opening_topic}',
+                f'- T.M. 訓練主題：{tm_topic}',
+                f'- 總評：{general_evaluator}',
+                f'- 教育訓練：{training_topic}',
+                f'- 講師：{lecturer}',
+            ]
+            self.logger.info('Found schedule row for %s on official schedule page', date_text)
+            return '\n'.join(summary_lines)
+
+        self.logger.info('No schedule row matched requested dates=%s', requested_dates)
+        return None
+
+    def _query_homepage_course_summary(self, user_input):
+        url = 'https://tmc1974.com/'
+        self.logger.debug('Querying latest courses from %s for: %s', url, user_input)
+        response = requests.get(url, timeout=10, headers=self._build_browser_headers())
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'lxml')
+        posts_container = soup.find('div', class_='elementor-posts-container')
+        if not posts_container:
+            self.logger.warning('Could not find posts container on the website. The site structure may have changed.')
+            return None
+
+        articles = posts_container.find_all('article', class_='elementor-post', limit=5)
+        if not articles:
+            self.logger.warning('No articles found in the posts container.')
+            return None
+
+        scraped_courses = []
+        for article in articles:
+            title_element = article.find('h3', class_='elementor-post__title')
+            date_element = article.find('span', class_='elementor-post-date')
+            if title_element and date_element:
+                scraped_courses.append(f"- {date_element.get_text(strip=True)}: {title_element.get_text(strip=True)}")
+
+        if scraped_courses:
+            course_summary = "根據台北市健言社官網最新公告：\n" + "\n".join(scraped_courses)
+            course_summary += f"\n\n更多詳情請訪問官網：{url}"
+            self.logger.info('Successfully scraped %d course/event items.', len(scraped_courses))
+            return course_summary
+
+        self.logger.warning('Found articles but could not extract title and date.')
+        return None
+
     def query_course_info(self, user_input):
-        course_keywords = ['課程', '課表', '公告', '最新', '活動', 'pathways', 'project', '教育', 'training', '學習', '健言', 'tmc']
+        course_keywords = ['課程', '課表', '公告', '最新', '活動', 'pathways', 'project', '教育', 'training', '學習', '健言', 'tmc', 'tm', '題目']
         if not any(keyword in user_input.lower() for keyword in course_keywords):
             return None
         if not BS4_AVAILABLE:
@@ -278,39 +382,10 @@ class ProviderService:
             return None
 
         try:
-            # 只有問題和課程/公告有關時，才額外抓官網內容補充上下文。
-            url = 'https://tmc1974.com/'
-            self.logger.debug('Querying latest courses from %s for: %s', url, user_input)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get(url, timeout=10, headers=headers)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'lxml')
-            posts_container = soup.find('div', class_='elementor-posts-container')
-            if not posts_container:
-                self.logger.warning('Could not find posts container on the website. The site structure may have changed.')
-                return None
-
-            articles = posts_container.find_all('article', class_='elementor-post', limit=5)
-            if not articles:
-                self.logger.warning('No articles found in the posts container.')
-                return None
-
-            scraped_courses = []
-            for article in articles:
-                title_element = article.find('h3', class_='elementor-post__title')
-                date_element = article.find('span', class_='elementor-post-date')
-                if title_element and date_element:
-                    scraped_courses.append(f"- {date_element.get_text(strip=True)}: {title_element.get_text(strip=True)}")
-
-            if scraped_courses:
-                course_summary = "根據台北市健言社官網最新公告：\n" + "\n".join(scraped_courses)
-                course_summary += f"\n\n更多詳情請訪問官網：{url}"
-                self.logger.info('Successfully scraped %d course/event items.', len(scraped_courses))
-                return course_summary
-            self.logger.warning('Found articles but could not extract title and date.')
-            return None
+            schedule_summary = self._query_schedule_page(user_input)
+            if schedule_summary:
+                return schedule_summary
+            return self._query_homepage_course_summary(user_input)
         except requests.RequestException as e:
             self.logger.error('Error querying course info from website: %s', e)
         except Exception as e:

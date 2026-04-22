@@ -19,8 +19,8 @@
 
 1. `README.md`
 2. `architecture.md`
-3. `.codex/PROJECT_SPEC.md`
-4. `.codex/AGENTS.md`
+3. `PROJECT_SPEC.md`
+4. `AGENTS.md`
 5. `knowledge/` 目錄
 6. `skills/` 目錄
 7. 與任務直接相關的 Python 檔案

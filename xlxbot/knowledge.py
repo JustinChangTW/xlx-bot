@@ -114,18 +114,18 @@ def load_knowledge_sections(config, logger):
         max_chars = 15000 if is_memory_like_file(config, kb_file) else None
         content = read_text_file(kb_file, logger, max_chars=max_chars)
         if content:
-            all_content.append(f"--- 來自 {kb_file} ---\n{content}")
+            sections.append(KnowledgeSection(path=kb_file, content=content))
             logger.info('Loaded knowledge file: %s (%d chars)', kb_file, len(content))
         elif os.path.exists(kb_file):
             logger.warning('Knowledge file %s is empty', kb_file)
 
-    if not all_content:
+    if not sections:
         logger.error('No knowledge files with content were loaded!')
         return None
 
-    combined = '\n\n'.join(all_content)
-    logger.info('Total knowledge base size: %d chars', len(combined))
-    return combined
+    total_chars = sum(len(section.content) for section in sections)
+    logger.info('Total knowledge base size: %d chars across %d sections', total_chars, len(sections))
+    return sections
 
 
 def refresh_memory_if_needed(config, logger, ask_ollama_func):

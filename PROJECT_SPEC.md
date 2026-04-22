@@ -141,8 +141,8 @@ Codex 開始新任務時，應優先閱讀：
 
 1. `README.md`
 2. `architecture.md`
-3. `.codex/PROJECT_SPEC.md`
-4. `.codex/AGENTS.md`
+3. `PROJECT_SPEC.md`
+4. `AGENTS.md`
 5. `knowledge/`
 6. `skills/`
 7. 與當前任務直接相關的程式檔案

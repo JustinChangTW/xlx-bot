@@ -182,7 +182,7 @@ def build_knowledge_context(sections, intent):
     return '\n\n'.join(useful), manual_exists, manual_hit
 
 
-def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None):
+def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
     # 統一在這裡組 prompt，把知識庫、規則、歷史與本次問題串起來。
     prompt_parts = [
         '你現在是「健言小龍蝦」，你的任務是根據提供的知識庫回答。\n'
@@ -212,7 +212,7 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
     return ''.join(prompt_parts)
 
 
-def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None):
+def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
     route_note_map = {
         state.route_general: '本題屬於一般訓練或技巧型需求，請優先提供快速、實用、貼題的回答。',
         state.route_expert: '本題屬於深度分析或複雜邏輯需求，請優先提供嚴謹、條理清楚的回答。',
@@ -224,10 +224,19 @@ def build_route_prompt(state, route_label, user_input, knowledge_content, intent
         f"原則：{route_note_map.get(route_label, '')}\n\n"
         f"{knowledge_content}"
     )
-    return build_prompt(state, user_input, routed_knowledge, intent, manual_exists, manual_hit, history)
+    return build_prompt(
+        state,
+        user_input,
+        routed_knowledge,
+        intent,
+        manual_exists,
+        manual_hit,
+        history,
+        lessons_guidance=lessons_guidance
+    )
 
 
-def ask_ai(config, state, logger, providers, user_input, history=None):
+def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance=''):
     sections = load_knowledge_sections(config, logger)
     if not sections:
         logger.error('Cannot load knowledge base sections')
@@ -246,7 +255,17 @@ def ask_ai(config, state, logger, providers, user_input, history=None):
         scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
 
     route_label, route_reason = classify_request(config, state, providers, user_input)
-    prompt = build_route_prompt(state, route_label, user_input, scoped_knowledge, intent, manual_exists, manual_hit, history)
+    prompt = build_route_prompt(
+        state,
+        route_label,
+        user_input,
+        scoped_knowledge,
+        intent,
+        manual_exists,
+        manual_hit,
+        history,
+        lessons_guidance=lessons_guidance
+    )
     provider_chain = get_route_provider_chain(state, route_label)
     logger.info('Router selected route=%s reason=%s intent=%s providers=%s', route_label, route_reason, intent, provider_chain)
 

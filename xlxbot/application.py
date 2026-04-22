@@ -1,5 +1,10 @@
+import errno
+import os
 import re
+import signal
+import socket
 import threading
+import time
 
 from flask import Flask, abort, jsonify, request
 from linebot.v3 import WebhookHandler
@@ -49,6 +54,7 @@ class BotApplication:
 
     def run_startup_checks(self):
         self.logger.info('Starting environment checks...')
+        self._run_preflight_checks()
         # Ollama 失敗時改成降級，不阻止整體服務啟動。
         if not check_ollama_service(self.config, self.logger):
             self.logger.warning('Ollama service check failed. The bot will continue with non-Ollama providers if available.')
@@ -61,6 +67,173 @@ class BotApplication:
             self.logger.error('Knowledge file check failed. Please ensure %s exists and contains content.', self.config.knowledge_file)
             raise SystemExit(1)
         self.logger.info('All environment checks passed. Starting bot...')
+
+    def _run_preflight_checks(self):
+        self.logger.info(
+            'Preflight config host=%s port=%s line_enabled=%s model=%s knowledge_file=%s',
+            self.config.flask_host,
+            self.config.flask_port,
+            self.config.line_integration_enabled,
+            self.config.ollama_model_name,
+            self.config.knowledge_file
+        )
+        self._ensure_port_is_available()
+
+    def _ensure_port_is_available(self):
+        listeners = self._find_port_listeners(self.config.flask_port)
+        if not listeners:
+            bind_error = self._get_bind_error()
+            if bind_error is None:
+                self.logger.info('Port preflight passed on %s:%s', self.config.flask_host, self.config.flask_port)
+                return
+            if isinstance(bind_error, PermissionError):
+                self.logger.warning(
+                    'Port bind probe skipped on %s:%s due to environment permission limits. No existing listener was detected.',
+                    self.config.flask_host,
+                    self.config.flask_port
+                )
+                return
+            if bind_error.errno != errno.EADDRINUSE:
+                self.logger.error(
+                    'Port preflight failed on %s:%s: %s',
+                    self.config.flask_host,
+                    self.config.flask_port,
+                    bind_error
+                )
+                raise SystemExit(1)
+            self.logger.error(
+                'Port %s appears occupied, but the listening process could not be identified.',
+                self.config.flask_port
+            )
+            raise SystemExit(1)
+
+        stale_bot_pids = [pid for pid in listeners if self._looks_like_stale_bot_process(pid)]
+        foreign_pids = [pid for pid in listeners if pid not in stale_bot_pids]
+
+        if foreign_pids:
+            details = ', '.join(f'pid={pid} cmd="{self._read_cmdline(pid)}"' for pid in foreign_pids)
+            self.logger.error('Port %s is occupied by another process: %s', self.config.flask_port, details)
+            raise SystemExit(1)
+
+        for pid in stale_bot_pids:
+            self.logger.warning('Port %s is occupied by a stale xlx-bot process pid=%s. Terminating it.', self.config.flask_port, pid)
+            self._terminate_process(pid)
+
+        remaining = self._find_port_listeners(self.config.flask_port)
+        if remaining:
+            details = ', '.join(f'pid={pid} cmd="{self._read_cmdline(pid)}"' for pid in remaining)
+            self.logger.error(
+                'Port %s is still occupied after cleanup: %s',
+                self.config.flask_port,
+                details
+            )
+            raise SystemExit(1)
+
+        self.logger.info('Port %s became available after stale-process cleanup', self.config.flask_port)
+
+    def _get_bind_error(self):
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.config.flask_host, self.config.flask_port))
+            return None
+        except OSError as exc:
+            return exc
+        finally:
+            if sock is not None:
+                sock.close()
+
+    def _find_port_listeners(self, port):
+        socket_inodes = self._read_listening_socket_inodes(port)
+        if not socket_inodes:
+            return []
+
+        listeners = []
+        for pid_name in os.listdir('/proc'):
+            if not pid_name.isdigit():
+                continue
+            pid = int(pid_name)
+            if pid == os.getpid():
+                continue
+            fd_dir = f'/proc/{pid}/fd'
+            try:
+                for fd_name in os.listdir(fd_dir):
+                    fd_path = os.path.join(fd_dir, fd_name)
+                    try:
+                        target = os.readlink(fd_path)
+                    except OSError:
+                        continue
+                    if not target.startswith('socket:['):
+                        continue
+                    inode = target[8:-1]
+                    if inode in socket_inodes:
+                        listeners.append(pid)
+                        break
+            except OSError:
+                continue
+        return sorted(set(listeners))
+
+    def _read_listening_socket_inodes(self, port):
+        inodes = set()
+        for proc_file in ('/proc/net/tcp', '/proc/net/tcp6'):
+            try:
+                with open(proc_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()[1:]
+            except OSError:
+                continue
+            for line in lines:
+                parts = line.split()
+                if len(parts) < 10:
+                    continue
+                local_address = parts[1]
+                state = parts[3]
+                inode = parts[9]
+                try:
+                    _, port_hex = local_address.split(':')
+                except ValueError:
+                    continue
+                if state == '0A' and int(port_hex, 16) == port:
+                    inodes.add(inode)
+        return inodes
+
+    def _read_cmdline(self, pid):
+        try:
+            with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                raw = f.read().replace(b'\x00', b' ').decode('utf-8', errors='ignore').strip()
+                return raw or '[unknown]'
+        except OSError:
+            return '[unreadable]'
+
+    def _looks_like_stale_bot_process(self, pid):
+        cmdline = self._read_cmdline(pid).lower()
+        markers = ('xlx-bot', '/home/myclaw/xlx-bot', 'python3 main.py', 'python main.py', 'xlxbot.application')
+        return any(marker in cmdline for marker in markers)
+
+    def _terminate_process(self, pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except OSError as exc:
+            self.logger.error('Failed to terminate pid=%s: %s', pid, exc)
+            raise SystemExit(1)
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if not os.path.exists(f'/proc/{pid}'):
+                return
+            time.sleep(0.2)
+
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except OSError as exc:
+            self.logger.error('Failed to force kill pid=%s: %s', pid, exc)
+            raise SystemExit(1)
+
+        time.sleep(0.2)
 
     def _register_routes(self):
         @self.app.route('/health', methods=['GET'])
