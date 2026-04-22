@@ -66,7 +66,6 @@
 - `architecture.md`：完整架構說明（Mermaid 可編輯版本）
 - `knowledge_schema.md`：知識欄位規格與維護流程
 - `answering_rules.md`：回答策略與反幻覺規範
-- `controlled_growth.md`：受控自我成長機制（learning events / lessons / troubleshooting）
 
 ## 需要的環境變數
 

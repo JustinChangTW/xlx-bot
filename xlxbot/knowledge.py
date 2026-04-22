@@ -64,7 +64,8 @@ def get_knowledge_files(config, logger):
         config.user_file,
         config.long_term_memory_file,
         config.knowledge_file,
-        'courses.md'
+        'courses.md',
+        'learned_knowledge.txt'
     ]
 
     potential_files.extend(list_markdown_files('knowledge'))
