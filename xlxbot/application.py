@@ -1,4 +1,3 @@
-import datetime
 import re
 import threading
 
@@ -10,6 +9,14 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 from .config import AppConfig, load_dotenv, validate_environment
 from .knowledge import append_memory_entry, check_knowledge_file
+from .learning import (
+    append_learning_event,
+    append_pending_knowledge,
+    detect_user_correction,
+    load_pre_answer_lessons,
+    parse_learned_tags,
+    rebuild_lessons_and_troubleshooting,
+)
 from .providers import ProviderService, check_ollama_model, check_ollama_service
 from .router import ask_ai
 from .runtime import RuntimeState
@@ -101,20 +108,65 @@ class BotApplication:
                     self.state.conversation_history[user_id] = []
                 history = self.state.conversation_history[user_id]
 
-                ai_response = ask_ai(self.config, self.state, self.logger, self.providers, user_text, history)
-                learned_matches = re.findall(r'<LEARNED>(.*?)</LEARNED>', ai_response, re.IGNORECASE | re.DOTALL)
+                if detect_user_correction(user_text):
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='USER_CORRECTION',
+                        user_id=user_id,
+                        user_input=user_text,
+                        details={'category': 'user_feedback'}
+                    )
+
+                lessons_guidance = load_pre_answer_lessons(self.config, self.logger)
+                ai_response = ask_ai(
+                    self.config,
+                    self.state,
+                    self.logger,
+                    self.providers,
+                    user_text,
+                    history,
+                    lessons_guidance=lessons_guidance
+                )
+
+                learned_matches = parse_learned_tags(ai_response)
                 if learned_matches:
-                    try:
-                        # 模型可主動把值得記住的新知識包在 <LEARNED> 標籤中，這裡會抽出後落盤。
-                        with open('learned_knowledge.txt', 'a', encoding='utf-8') as f:
-                            for match in learned_matches:
-                                fact = match.strip()
-                                if fact:
-                                    f.write(f"- {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}: {fact}\n")
-                                    self.logger.info('Saved new knowledge: %s', fact)
-                        ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
-                    except Exception as e:
-                        self.logger.error('Failed to save learned knowledge: %s', e)
+                    for match in learned_matches:
+                        fact = match.strip()
+                        if not fact:
+                            continue
+                        append_pending_knowledge(self.config, self.logger, fact, user_id=user_id)
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='PENDING_KNOWLEDGE_CAPTURED',
+                            user_id=user_id,
+                            user_input=user_text,
+                            details={'category': 'pending_review', 'fact': fact[:200]}
+                        )
+                        self.logger.info('Saved pending-review knowledge: %s', fact)
+                    ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
+
+                if '資料不足' in ai_response or '查不到' in ai_response:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='ANSWER_WITH_INSUFFICIENT_DATA',
+                        user_id=user_id,
+                        user_input=user_text,
+                        bot_response=ai_response,
+                        details={'category': 'insufficient_data'}
+                    )
+                elif '無法連線到任何 AI 服務' in ai_response:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='ANSWER_FAILURE',
+                        user_id=user_id,
+                        user_input=user_text,
+                        bot_response=ai_response,
+                        details={'reason': 'provider_chain_failed'}
+                    )
 
                 self.logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
                 history.append((user_text, ai_response))
@@ -123,6 +175,15 @@ class BotApplication:
 
                 # 每次互動都寫入每日記憶檔，後續可再彙整成長期記憶。
                 append_memory_entry(self.config, self.logger, self.providers.ask_ollama, user_id, user_text, ai_response)
+                append_learning_event(
+                    self.config,
+                    self.logger,
+                    event_type='ANSWER_SENT',
+                    user_id=user_id,
+                    user_input=user_text,
+                    bot_response=ai_response
+                )
+                rebuild_lessons_and_troubleshooting(self.config, self.logger)
 
                 try:
                     with ApiClient(self.line_bot_configuration) as api_client:
@@ -133,7 +194,16 @@ class BotApplication:
                                 messages=[TextMessage(text=ai_response)]
                             )
                         )
-                except Exception:
+                except Exception as e:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='SYSTEM_ERROR',
+                        user_id=user_id,
+                        user_input=user_text,
+                        bot_response=ai_response,
+                        details={'error_type': 'send_line_reply_failed', 'reason': str(e)[:200]}
+                    )
                     self.logger.exception('Failed to send LINE reply')
 
             # LINE webhook 應盡快回 200，實際 AI 處理改到背景執行。
