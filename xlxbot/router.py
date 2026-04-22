@@ -13,7 +13,9 @@ INTENT_OVERVIEW = 'GENERAL_OVERVIEW'
 INTENT_RULE = 'RULE_QUERY'
 INTENT_COURSE = 'COURSE_QUERY'
 INTENT_ORG = 'ORG_QUERY'
+INTENT_PROMOTION = 'PROMOTION_QUERY'
 MANUAL_PRIORITY_INTENTS = {INTENT_RULE, INTENT_COURSE, INTENT_ORG}
+COURSE_TIME_KEYWORDS = ['今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月']
 
 
 def classify_request_with_rules(state, user_input):
@@ -68,6 +70,14 @@ def classify_request(config, state, providers, user_input):
 def classify_question_intent(user_input):
     text = (user_input or '').lower()
 
+    if any(keyword in text for keyword in ['宣傳', '社務布達', '文宣', '宣傳文案', '邀請大家', '邀請來上課']):
+        return INTENT_PROMOTION
+    if any(keyword in text for keyword in ['會外會', '戶外活動']):
+        return INTENT_ACTIVITY
+    if any(keyword in text for keyword in ['會內會', '社課']):
+        return INTENT_COURSE
+    if any(keyword in text for keyword in COURSE_TIME_KEYWORDS):
+        return INTENT_COURSE
     if any(keyword in text for keyword in ['規則', '章程', '制度', '請假規定', '出席規則', 'rule', 'policy']):
         return INTENT_RULE
     if any(keyword in text for keyword in ['課程', '課表', '上課', '教學', 'workshop', 'curriculum']):
@@ -111,6 +121,8 @@ def is_relevant_section(file_path, intent):
         return any(tag in path for tag in ['60_announcements', '50_programs_and_events', '80_faq', 'club_manual'])
     if intent == INTENT_ACTIVITY:
         return any(tag in path for tag in ['50_programs_and_events', '60_announcements', '80_faq', 'club_manual'])
+    if intent == INTENT_PROMOTION:
+        return any(tag in path for tag in ['50_programs_and_events', '60_announcements', '70_culture', '80_faq', 'club_manual'])
     if intent == INTENT_HISTORY:
         return any(tag in path for tag in ['20_history', '10_club_basic', '80_faq', 'club_manual'])
     if intent == INTENT_OVERVIEW:
@@ -194,7 +206,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         '5. 若問題含有「目前、最近、現任、最新」等時間語意，優先使用知識中的『最新公告/近期活動/目前資訊』段落。\n'
         '6. 回答要貼題、簡潔、可核對；避免空泛長篇。\n'
         '7. 不要要求或假設你已經上網查詢；本回合僅依賴提供的知識內容。\n'
-        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n\n'
+        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n'
+        '9. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
@@ -249,10 +262,13 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
         return '目前提供的社團資料不足以確認（club_manual 尚無對應內容）。'
 
-    # 活動/公告題型仍可追加官網資料，但回答必須可追溯到上下文。
     course_info = providers.query_course_info(user_input)
-    if course_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_COURSE}:
+    if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
         scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
+
+    news_info = providers.query_latest_news(user_input)
+    if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
+        scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
 
     route_label, route_reason = classify_request(config, state, providers, user_input)
     prompt = build_route_prompt(

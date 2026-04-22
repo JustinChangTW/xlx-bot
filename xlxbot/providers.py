@@ -1,3 +1,4 @@
+import datetime
 import re
 from urllib.parse import urlparse, urlunparse
 
@@ -275,6 +276,25 @@ class ProviderService:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
+    def _is_internal_course_query(self, user_input):
+        text = (user_input or '').lower()
+        keywords = [
+            '課程', '課表', '上課', '教育訓練', 'tm', '題目', '社課', '會內會',
+            '今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月'
+        ]
+        return any(keyword in text for keyword in keywords)
+
+    def _is_news_query(self, user_input):
+        text = (user_input or '').lower()
+        keywords = ['公告', '最新消息', '會外會', '戶外活動', '活動', '宣傳', '社務布達', '文宣']
+        return any(keyword in text for keyword in keywords)
+
+    def _next_weekday(self, current_date, weekday):
+        days_ahead = (weekday - current_date.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        return current_date + datetime.timedelta(days=days_ahead)
+
     def _extract_requested_schedule_dates(self, user_input):
         text = user_input or ''
         matches = []
@@ -284,6 +304,17 @@ class ProviderService:
 
         for month, day in re.findall(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', text):
             matches.append(f'{int(month)}/{int(day)}')
+
+        today = datetime.date.today()
+        relative_dates = {
+            '今天': today,
+            '明天': today + datetime.timedelta(days=1),
+            '後天': today + datetime.timedelta(days=2),
+            # 社課固定周四，提到今天/明天/後天時仍保留明確日曆日期判斷。
+        }
+        for phrase, resolved_date in relative_dates.items():
+            if phrase in text:
+                matches.append(f'{resolved_date.month}/{resolved_date.day}')
 
         normalized = []
         seen = set()
@@ -295,9 +326,116 @@ class ProviderService:
                 normalized.append(item)
         return normalized
 
+    def _extract_relative_schedule_bucket(self, user_input):
+        text = user_input or ''
+        if any(keyword in text for keyword in ['下個月', '下个月', '下月']):
+            return 'next_month'
+        if any(keyword in text for keyword in ['下週', '下周', '下一週', '下一周']):
+            return 'next_week'
+        if any(keyword in text for keyword in ['這週', '這周', '本週', '本周']):
+            return 'this_week'
+        return None
+
+    def _normalize_schedule_date(self, date_text, today):
+        match = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', date_text or '')
+        if not match:
+            return None
+
+        month = int(match.group(1))
+        day = int(match.group(2))
+        year = today.year
+        try:
+            candidate = datetime.date(year, month, day)
+        except ValueError:
+            return None
+
+        if candidate < today - datetime.timedelta(days=180):
+            try:
+                candidate = datetime.date(year + 1, month, day)
+            except ValueError:
+                return None
+        return candidate
+
+    def _select_schedule_row_by_relative_bucket(self, rows, bucket, today):
+        if not bucket:
+            return None
+
+        if bucket == 'this_week':
+            target_date = self._next_weekday(today - datetime.timedelta(days=1), 3)
+            for row in rows:
+                if row.get('resolved_date') == target_date:
+                    return row
+            return None
+
+        if bucket == 'next_week':
+            target_date = self._next_weekday(today, 3) + datetime.timedelta(days=7)
+            for row in rows:
+                if row.get('resolved_date') == target_date:
+                    return row
+            return None
+
+        if bucket == 'next_month':
+            if today.month == 12:
+                target_year = today.year + 1
+                target_month = 1
+            else:
+                target_year = today.year
+                target_month = today.month + 1
+
+            matched_rows = []
+            for row in rows:
+                row_date = row.get('resolved_date')
+                if row_date is None:
+                    continue
+                if row_date.year == target_year and row_date.month == target_month and row_date.weekday() == 3:
+                    matched_rows.append(row)
+            return matched_rows
+
+        return None
+
+    def _build_schedule_row_summary(self, row, url):
+        return '\n'.join(
+            [
+                f'根據台北市健言社官網課表（{url}），{row["date_text"]} 的課程資料如下：',
+                f'- 開場主題：{row["opening_topic"]}',
+                f'- T.M. 訓練主題：{row["tm_topic"]}',
+                f'- 總評：{row["general_evaluator"]}',
+                f'- 教育訓練：{row["training_topic"]}',
+                f'- 講師：{row["lecturer"]}',
+            ]
+        )
+
+    def _build_next_month_schedule_summary(self, rows, url):
+        lines = [f'根據台北市健言社官網課表（{url}），下個月的周四社課如下：']
+        for row in rows:
+            lines.extend(
+                [
+                    f'- {row["date_text"]}',
+                    f'  開場主題：{row["opening_topic"]}',
+                    f'  T.M. 訓練主題：{row["tm_topic"]}',
+                    f'  教育訓練：{row["training_topic"]}',
+                ]
+            )
+        return '\n'.join(lines)
+
+    def _build_fixed_thursday_hint(self, user_input):
+        text = user_input or ''
+        today = datetime.date.today()
+        next_thursday = self._next_weekday(today - datetime.timedelta(days=1), 3)
+        if '明天' in text and (today + datetime.timedelta(days=1)).weekday() != 3:
+            return f'明天沒有社課，社課固定在每週四；下一次社課是 {next_thursday.month}/{next_thursday.day}。'
+        if '今天' in text and today.weekday() != 3:
+            return f'今天沒有社課，社課固定在每週四；下一次社課是 {next_thursday.month}/{next_thursday.day}。'
+        return None
+
     def _query_schedule_page(self, user_input):
+        fixed_thursday_hint = self._build_fixed_thursday_hint(user_input)
+        if fixed_thursday_hint:
+            return fixed_thursday_hint
+
         requested_dates = self._extract_requested_schedule_dates(user_input)
-        if not requested_dates:
+        relative_bucket = self._extract_relative_schedule_bucket(user_input)
+        if not requested_dates and not relative_bucket:
             return None
 
         url = 'https://tmc1974.com/schedule/'
@@ -311,34 +449,46 @@ class ProviderService:
             self.logger.warning('Could not find schedule table on %s', url)
             return None
 
+        today = datetime.date.today()
+        parsed_rows = []
         body_rows = table.find_all('tr')
         for row in body_rows:
             cells = [cell.get_text(' ', strip=True) for cell in row.find_all(['th', 'td'])]
             if len(cells) < 6:
                 continue
-            date_text = cells[1]
-            if date_text not in requested_dates:
-                continue
+            parsed_rows.append(
+                {
+                    'date_text': cells[1],
+                    'opening_topic': cells[2],
+                    'tm_topic': cells[3],
+                    'general_evaluator': cells[4],
+                    'training_topic': cells[5],
+                    'lecturer': cells[6] if len(cells) > 6 else '[未提供]',
+                    'resolved_date': self._normalize_schedule_date(cells[1], today),
+                }
+            )
 
-            opening_topic = cells[2]
-            tm_topic = cells[3]
-            general_evaluator = cells[4]
-            training_topic = cells[5]
-            lecturer = cells[6] if len(cells) > 6 else '[未提供]'
+        matched_row = None
+        for row in parsed_rows:
+            if row['date_text'] in requested_dates:
+                matched_row = row
+                break
+        if matched_row is None:
+            matched_row = self._select_schedule_row_by_relative_bucket(parsed_rows, relative_bucket, today)
 
-            summary_lines = [
-                f'根據台北市健言社官網課表（{url}），{date_text} 的課程資料如下：',
-                f'- 開場主題：{opening_topic}',
-                f'- T.M. 訓練主題：{tm_topic}',
-                f'- 總評：{general_evaluator}',
-                f'- 教育訓練：{training_topic}',
-                f'- 講師：{lecturer}',
-            ]
-            self.logger.info('Found schedule row for %s on official schedule page', date_text)
-            return '\n'.join(summary_lines)
+        if isinstance(matched_row, list):
+            if not matched_row:
+                self.logger.info('No schedule rows matched next-month bucket on official schedule page')
+                return None
+            self.logger.info('Found %d schedule rows for next month on official schedule page', len(matched_row))
+            return self._build_next_month_schedule_summary(matched_row, url)
 
-        self.logger.info('No schedule row matched requested dates=%s', requested_dates)
-        return None
+        if matched_row is None:
+            self.logger.info('No schedule row matched requested dates=%s relative_bucket=%s', requested_dates, relative_bucket)
+            return None
+
+        self.logger.info('Found schedule row for %s on official schedule page', matched_row['date_text'])
+        return self._build_schedule_row_summary(matched_row, url)
 
     def _query_homepage_course_summary(self, user_input):
         url = 'https://tmc1974.com/'
@@ -373,9 +523,22 @@ class ProviderService:
         self.logger.warning('Found articles but could not extract title and date.')
         return None
 
+    def query_latest_news(self, user_input):
+        if not BS4_AVAILABLE:
+            self.logger.warning('BeautifulSoup4 is not installed. Skipping latest news query.')
+            return None
+        if not self._is_news_query(user_input):
+            return None
+        try:
+            return self._query_homepage_course_summary(user_input)
+        except requests.RequestException as e:
+            self.logger.error('Error querying latest news from website: %s', e)
+        except Exception as e:
+            self.logger.error('An unexpected error occurred during latest news scraping: %s', e)
+        return None
+
     def query_course_info(self, user_input):
-        course_keywords = ['課程', '課表', '公告', '最新', '活動', 'pathways', 'project', '教育', 'training', '學習', '健言', 'tmc', 'tm', '題目']
-        if not any(keyword in user_input.lower() for keyword in course_keywords):
+        if not self._is_internal_course_query(user_input):
             return None
         if not BS4_AVAILABLE:
             self.logger.warning('BeautifulSoup4 is not installed. Skipping dynamic course query.')
