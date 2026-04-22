@@ -9,6 +9,10 @@ class KnowledgeSection:
     content: str
 
 
+def normalize_path(file_path):
+    return (file_path or '').replace('\\', '/')
+
+
 def ensure_memory_dirs(config, logger):
     # 每日記憶會寫進 memory/，啟動或讀寫前先確保目錄存在。
     try:
@@ -56,75 +60,102 @@ def list_markdown_files(directory):
     return markdown_files
 
 
-def get_knowledge_files(config, logger):
-    # 知識來源包含固定檔、模組化 knowledge/skills/，以及近期記憶。
-    potential_files = [
+def dedupe_existing_files(file_paths):
+    existing_files = []
+    seen = set()
+    for file_path in file_paths:
+        normalized = normalize_path(file_path)
+        if not file_path or normalized in seen or not os.path.exists(file_path):
+            continue
+        seen.add(normalized)
+        existing_files.append(file_path)
+    return existing_files
+
+
+def get_formal_knowledge_files(config, logger):
+    # 正式回答只使用可被視為社團事實來源的檔案，避免把系統輔助資訊誤當知識。
+    fact_files = [
+        config.knowledge_file,
+        'courses.md',
+    ]
+    fact_files.extend(list_markdown_files('knowledge'))
+    existing_files = dedupe_existing_files(fact_files)
+    logger.debug('Found formal knowledge files: %s', existing_files)
+    return existing_files
+
+
+def get_supporting_context_files(config, logger):
+    # 這些檔案可作為維運、學習或後續輔助用途，但不應直接當成社團事實回答來源。
+    support_files = [
         config.soul_file,
         config.agents_file,
         config.user_file,
         config.long_term_memory_file,
-        config.knowledge_file,
-        'courses.md',
-        'learned_knowledge.txt'
+        'learned_knowledge.txt',
     ]
-
-    potential_files.extend(list_markdown_files('knowledge'))
 
     skill_files = list_markdown_files('skills')
     if skill_files:
-        potential_files.extend(skill_files)
+        support_files.extend(skill_files)
     else:
-        potential_files.append('skills.md')
+        support_files.append('skills.md')
 
     for days_ago in range(config.daily_memory_lookback_days):
-        potential_files.append(get_daily_memory_path(config, days_ago))
+        support_files.append(get_daily_memory_path(config, days_ago))
 
-    existing_files = [f for f in potential_files if f and os.path.exists(f)]
-    logger.debug('Found potential knowledge files: %s', existing_files)
+    existing_files = dedupe_existing_files(support_files)
+    logger.debug('Found supporting context files: %s', existing_files)
     return existing_files
 
 
 def is_memory_like_file(config, file_path):
-    normalized = file_path.replace('\\', '/')
+    normalized = normalize_path(file_path)
     return normalized.startswith(config.memory_dir) or '/memory/' in normalized or normalized.endswith('memory.md')
 
 
 def check_knowledge_file(config, logger):
     ensure_memory_dirs(config, logger)
-    kb_files = get_knowledge_files(config, logger)
+    kb_files = get_formal_knowledge_files(config, logger)
     if not kb_files:
-        logger.error('No knowledge files found. Please check file paths and names in your configuration.')
+        logger.error('No formal knowledge files found. Please check knowledge/ and %s.', config.knowledge_file)
         return False
 
     for kb_file in kb_files:
         if os.path.getsize(kb_file) > 0:
-            logger.info('Knowledge file check passed. Found content in %s', kb_file)
+            logger.info('Formal knowledge check passed. Found content in %s', kb_file)
             return True
 
-    logger.error('All found knowledge files are empty: %s', kb_files)
+    logger.error('All formal knowledge files are empty: %s', kb_files)
     return False
 
 
 def load_knowledge_sections(config, logger):
     ensure_memory_dirs(config, logger)
     sections = []
-    kb_files = get_knowledge_files(config, logger)
+    kb_files = get_formal_knowledge_files(config, logger)
+    support_files = get_supporting_context_files(config, logger)
+
+    if support_files:
+        logger.info(
+            'Supporting context files are available but excluded from formal answer knowledge: %s',
+            support_files
+        )
 
     for kb_file in kb_files:
         max_chars = 15000 if is_memory_like_file(config, kb_file) else None
         content = read_text_file(kb_file, logger, max_chars=max_chars)
         if content:
             sections.append(KnowledgeSection(path=kb_file, content=content))
-            logger.info('Loaded knowledge file: %s (%d chars)', kb_file, len(content))
+            logger.info('Loaded formal knowledge file: %s (%d chars)', kb_file, len(content))
         elif os.path.exists(kb_file):
-            logger.warning('Knowledge file %s is empty', kb_file)
+            logger.warning('Formal knowledge file %s is empty', kb_file)
 
     if not sections:
-        logger.error('No knowledge files with content were loaded!')
+        logger.error('No formal knowledge files with content were loaded!')
         return None
 
     total_chars = sum(len(section.content) for section in sections)
-    logger.info('Total knowledge base size: %d chars across %d sections', total_chars, len(sections))
+    logger.info('Total formal knowledge size: %d chars across %d sections', total_chars, len(sections))
     return sections
 
 

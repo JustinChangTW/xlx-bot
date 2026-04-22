@@ -16,6 +16,33 @@ INTENT_ORG = 'ORG_QUERY'
 INTENT_PROMOTION = 'PROMOTION_QUERY'
 MANUAL_PRIORITY_INTENTS = {INTENT_RULE, INTENT_COURSE, INTENT_ORG}
 COURSE_TIME_KEYWORDS = ['今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月']
+FACT_REQUIRED_INTENTS = {
+    INTENT_FACT,
+    INTENT_MEMBER,
+    INTENT_ACTIVITY,
+    INTENT_ANNOUNCEMENT,
+    INTENT_HISTORY,
+    INTENT_OVERVIEW,
+}
+MISSING_INFO_MARKERS = [
+    '[目前知識庫沒有這項資訊]',
+    '[目前知識庫缺少',
+    '[尚未提供]',
+    '[尚未整理',
+    '[需要',
+    '[待補資料]',
+    '待補資料',
+    '資料不足',
+]
+NON_FACT_SECTION_MARKERS = [
+    '待補資料',
+    'gap',
+    '欄位模板',
+    '回答規則提醒',
+    '使用限制提醒',
+    '維護提醒',
+    '更新資訊',
+]
 
 
 def classify_request_with_rules(state, user_input):
@@ -108,7 +135,7 @@ def get_route_provider_chain(state, route_label):
 
 
 def is_club_manual(path):
-    return path.lower().endswith('knowledge/club_manual.md')
+    return path.lower().endswith('knowledge/90_club_manual.md')
 
 
 def is_relevant_section(file_path, intent):
@@ -146,6 +173,51 @@ def split_markdown_sections(content):
     if current_lines:
         sections.append((current_title, '\n'.join(current_lines).strip()))
     return sections
+
+
+def is_missing_info_line(line):
+    normalized = (line or '').strip()
+    if not normalized:
+        return True
+    if normalized.startswith('--- 來自 '):
+        return True
+    if normalized in {'[無可用知識片段]'}:
+        return True
+    lowered = normalized.lower()
+    return any(marker.lower() in lowered for marker in MISSING_INFO_MARKERS)
+
+
+def section_has_meaningful_fact(title, body):
+    normalized_title = (title or '').strip().lower()
+    if any(marker in normalized_title for marker in NON_FACT_SECTION_MARKERS):
+        return False
+
+    for raw_line in (body or '').splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith('#'):
+            continue
+        if is_missing_info_line(line):
+            continue
+        if line in {'[IMPORTANT]', '[TYPE: RULES]', '[TYPE: ANSWERING_RULES]'}:
+            continue
+        return True
+    return False
+
+
+def has_grounded_facts(knowledge_content):
+    if not knowledge_content or knowledge_content.strip() == '[無可用知識片段]':
+        return False
+
+    sections = split_markdown_sections(knowledge_content)
+    if not sections:
+        return False
+
+    for title, body in sections:
+        if section_has_meaningful_fact(title, body):
+            return True
+    return False
 
 
 def extract_club_manual_context(content, intent):
@@ -206,7 +278,7 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         '5. 若問題含有「目前、最近、現任、最新」等時間語意，優先使用知識中的『最新公告/近期活動/目前資訊』段落。\n'
         '6. 回答要貼題、簡潔、可核對；避免空泛長篇。\n'
         '7. 不要要求或假設你已經上網查詢；本回合僅依賴提供的知識內容。\n'
-        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n'
+        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n'
         '9. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
@@ -269,6 +341,10 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     news_info = providers.query_latest_news(user_input)
     if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
         scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
+
+    if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
+        logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
+        return '目前知識庫沒有這項資訊，或目前提供的社團資料不足以確認。'
 
     route_label, route_reason = classify_request(config, state, providers, user_input)
     prompt = build_route_prompt(

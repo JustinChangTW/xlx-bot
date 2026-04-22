@@ -11,7 +11,7 @@
   - 待補資料（TODO / Gap）
 
 ## 檔案目錄
-- `knowledge/club_manual.md`：社團手冊（規則/課程/組織優先來源）
+- `knowledge/90_club_manual.md`：社團手冊（規則/課程/組織優先來源）
 - `knowledge/10_club_basic.md`：社團基本資料
 - `knowledge/20_history.md`：社團沿革與里程碑
 - `knowledge/30_org_structure.md`：組織架構與組別職責

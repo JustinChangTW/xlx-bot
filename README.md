@@ -1,12 +1,14 @@
 # xlx-bot
 
-這是一個使用 Flask + LINE Messaging API + Ollama 的小龍蝦聊天機器人。
+這是一個使用 Flask + LINE Messaging API、多模型 provider 與模組化知識庫的小龍蝦聊天機器人。
 
 ## 主要功能
 
 - 接收 LINE 訊息 webhook
-- 讀取 `knowledge.txt` 中的社團知識
-- 組成 prompt 並呼叫本地 Ollama AI
+- 讀取 `knowledge/` 與 `knowledge.txt` 中的正式社團知識
+- 依問題類型挑選相關知識片段並組成 prompt
+- 呼叫本地 Ollama 與其他可用 provider 產生回答
+- 在知識不足時優先明確拒答，不亂編現況資訊
 - 回傳 AI 生成的繁體中文回答
 - 內建 logging 與 `/health` 健康檢查
 
@@ -55,11 +57,29 @@
 
 ## 知識模組化
 
-- `knowledge/` 採用一個主題一個檔的設計，主程式會自動載入該目錄下所有 `.md`。
-- `skills/` 採用一個 skill 一個檔的設計，主程式會自動載入該目錄下所有 `.md`。
+- `knowledge/` 採用一個主題一個檔的設計，回答流程會把它視為正式社團知識來源。
+- `knowledge.txt` 可保留作為補充索引或過渡內容，但回答時仍以 `knowledge/` 為主。
+- `skills/` 採用一個 skill 一個檔的設計，但目前不直接當作社團事實知識來源。
 - `knowledge/` 與 `skills/` 建議用檔名前綴序號控制載入順序，例如 `10_...`、`20_...`、`30_...`。
-- `memory/` 已經是按日期拆分的模組化記憶層，適合保留目前結構。
-- `memory.md` 保留作為長期摘要記憶，不建議再過度拆分，避免摘要脈絡破碎。
+- `memory/` 與 `memory.md` 屬於記憶/維運資料，現階段不直接當作正式社團事實回答來源。
+- `AGENTS.md`、`SOUL.md`、`USER.md` 與 `learned_knowledge.txt` 也屬於輔助資料，不直接進正式知識池。
+
+## 目前回答流程
+
+1. 收到 LINE 訊息後，先做 webhook 驗證，再交給背景執行緒處理。
+2. 系統會載入正式知識來源，也就是 `knowledge/` 與 `knowledge.txt`。
+3. Router 會先判斷問題意圖，例如規則、課程、組織、活動、公告、事實查詢。
+4. 若是規則 / 課程 / 組織類問題，會優先使用 `knowledge/90_club_manual.md`。
+5. 若命中的知識只有待補欄位、模板或資料不足標記，系統會直接回覆資料不足，而不是把空白交給模型自由生成。
+6. 若有足夠知識，再依 route 選擇可用 provider chain，例如 Groq、xAI、GitHub Models、Gemini、Ollama。
+
+## 回答原則
+
+- 正式回答只依據已明確記載的社團知識內容。
+- 若知識不足，直接回答「目前知識庫沒有這項資訊」或「目前提供的社團資料不足以確認」。
+- 問到 `目前 / 最新 / 現任 / 最近` 時，只能使用知識檔內已標示為現況的內容。
+- `90_club_manual.md` 只用來回答規則、訓練流程與職責模板，不可拿來推測現任名單或最新公告。
+- `40_current_officers.md`、`50_programs_and_events.md`、`60_announcements.md` 已明確標示各自的可回答邊界。
 
 ## 架構文件
 

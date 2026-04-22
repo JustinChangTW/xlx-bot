@@ -30,6 +30,6 @@
 - `目前提供的社團資料不足以確認。`
 
 ## club_manual 優先規則
-- 問題屬於「規則 / 課程 / 組織」時，先查 `knowledge/club_manual.md`。
-- 若 `club_manual.md` 無對應段落或內容為待補，直接回覆資料不足。
+- 問題屬於「規則 / 課程 / 組織」時，先查 `knowledge/90_club_manual.md`。
+- 若 `90_club_manual.md` 無對應段落或內容為待補，直接回覆資料不足。
 - 不可改用推測補齊規則內容。
