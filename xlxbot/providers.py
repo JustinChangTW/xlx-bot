@@ -1,6 +1,6 @@
 import datetime
 import re
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 
@@ -107,6 +107,19 @@ class ProviderService:
         self.state = state
         self.logger = logger
         self.gemini_client = genai.Client(api_key=config.gemini_api_key) if GENAI_AVAILABLE and config.gemini_api_key else None
+
+    def is_provider_available(self, provider_name):
+        if provider_name == 'groq':
+            return bool(self.config.groq_api_key and self.config.groq_model_name)
+        if provider_name == 'xai':
+            return bool(self.config.xai_api_key and self.config.xai_model_name)
+        if provider_name == 'github':
+            return bool(self.config.github_models_token and self.config.github_models_name)
+        if provider_name == 'gemini':
+            return bool(GENAI_AVAILABLE and self.config.gemini_api_key and self.gemini_client)
+        if provider_name == 'ollama':
+            return bool(self.config.ollama_api_url and self.config.ollama_model_name)
+        return False
 
     def ask_ollama_with_model(self, prompt, model_name):
         try:
@@ -288,6 +301,173 @@ class ProviderService:
         text = (user_input or '').lower()
         keywords = ['公告', '最新消息', '會外會', '戶外活動', '活動', '宣傳', '社務布達', '文宣']
         return any(keyword in text for keyword in keywords)
+
+    def _is_official_site_query(self, user_input):
+        text = (user_input or '').lower()
+        keywords = [
+            '社團', '社團簡介', '健言', '小龍蝦', '理事長', '理監事', '高級幹部', '幹部', '社長', '副社長', '組長', '負責人', '講師', '講員', '辯論',
+            '活動', '公告', '照片', '相簿', '影片', '影音', '官網', 'leaders', 'board', 'lecturer',
+            'debate', 'events', 'photos', 'videos', 'rules'
+        ]
+        return any(keyword in text for keyword in keywords)
+
+    def _get_official_site_targets(self, user_input, intent):
+        text = (user_input or '').lower()
+        targets = []
+
+        def add(url):
+            if url not in targets:
+                targets.append(url)
+
+        if any(keyword in text for keyword in ['社團簡介', '本期高級幹部', '高級幹部']):
+            add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/board-members/')
+            add('https://tmc1974.com/')
+            return targets[:4]
+
+        if any(keyword in text for keyword in ['理事會成員', '理事會有哪些人', '理監事成員', '理監事有哪些人']):
+            add('https://tmc1974.com/board-members/')
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/')
+            return targets[:4]
+
+        if re.search(r'\d+\s*期.*(社長|副社長|組長|幹部|負責人)', text):
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/board-members/')
+            add('https://tmc1974.com/')
+            return targets[:4]
+
+        add('https://tmc1974.com/')
+        if any(keyword in text for keyword in ['社團簡介', 'rules', '高級幹部']):
+            add('https://tmc1974.com/rules/')
+
+        if any(keyword in text for keyword in ['理事長', '理監事', 'board', '董事', '監事']):
+            add('https://tmc1974.com/board-members/')
+        if any(keyword in text for keyword in ['幹部', '領導', 'leaders', '社長', '副社長', '組長', '負責人']):
+            add('https://tmc1974.com/leaders/')
+        if any(keyword in text for keyword in ['講師', 'lecturer', '教育訓練']):
+            add('https://tmc1974.com/lecturer/')
+        if any(keyword in text for keyword in ['辯論', 'debate']):
+            add('https://tmc1974.com/debate/')
+        if any(keyword in text for keyword in ['活動', '會外會', 'event', 'events']):
+            add('https://tmc1974.com/category/events/')
+        if any(keyword in text for keyword in ['照片', '相簿', 'photo', 'photos']):
+            add('https://tmc1974.com/category/photos/')
+        if any(keyword in text for keyword in ['影片', '影音', 'video', 'videos']):
+            add('https://tmc1974.com/category/videos/')
+
+        if intent == 'MEMBER_QUERY':
+            add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/board-members/')
+            add('https://tmc1974.com/leaders/')
+        elif intent == 'ORG_QUERY':
+            add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/board-members/')
+        elif intent == 'ACTIVITY_QUERY':
+            add('https://tmc1974.com/category/events/')
+            add('https://tmc1974.com/category/photos/')
+            add('https://tmc1974.com/category/videos/')
+        elif intent == 'ANNOUNCEMENT_QUERY':
+            add('https://tmc1974.com/category/events/')
+        elif intent == 'COURSE_QUERY':
+            add('https://tmc1974.com/lecturer/')
+            add('https://tmc1974.com/debate/')
+        elif intent == 'OVERVIEW':
+            add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/board-members/')
+        elif intent == 'GENERAL_OVERVIEW':
+            add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/leaders/')
+            add('https://tmc1974.com/board-members/')
+
+        return targets[:4]
+
+    def _clean_text_line(self, text):
+        cleaned = re.sub(r'\s+', ' ', (text or '')).strip()
+        if not cleaned:
+            return ''
+        if cleaned in {'Read more', '閱讀更多'}:
+            return ''
+        return cleaned
+
+    def _extract_page_summary(self, url):
+        response = requests.get(url, timeout=10, headers=self._build_browser_headers())
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'lxml')
+        container = soup.find('main') or soup.find('article') or soup.find('body')
+        if container is None:
+            self.logger.warning('Could not find readable content container on %s', url)
+            return None
+
+        lines = []
+        seen = set()
+        for element in container.find_all(['h1', 'h2', 'h3', 'p', 'li'], limit=80):
+            text = self._clean_text_line(element.get_text(' ', strip=True))
+            if not text or len(text) < 4:
+                continue
+            normalized = text.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            lines.append(text)
+            if len(lines) >= 10:
+                break
+
+        links = []
+        seen_links = set()
+        for anchor in container.find_all('a', href=True, limit=40):
+            href = urljoin(url, anchor['href'])
+            text = self._clean_text_line(anchor.get_text(' ', strip=True))
+            if not text or href in seen_links or not href.startswith('https://tmc1974.com/'):
+                continue
+            seen_links.add(href)
+            links.append(f'- {text}: {href}')
+            if len(links) >= 5:
+                break
+
+        if not lines and not links:
+            self.logger.warning('Found page %s but could not extract summary lines', url)
+            return None
+
+        title = self._clean_text_line(soup.title.get_text(' ', strip=True) if soup.title else '')
+        summary_parts = [f'根據台北市健言社官網頁面（{url}）整理：']
+        if title:
+            summary_parts.append(f'- 頁面標題：{title}')
+        summary_parts.extend(f'- {line}' for line in lines[:8])
+        if links:
+            summary_parts.append('- 相關連結：')
+            summary_parts.extend(links)
+        return '\n'.join(summary_parts)
+
+    def query_official_site_map(self, user_input, intent):
+        if not BS4_AVAILABLE:
+            self.logger.warning('BeautifulSoup4 is not installed. Skipping official site query.')
+            return None
+        if not self._is_official_site_query(user_input):
+            return None
+
+        targets = self._get_official_site_targets(user_input, intent)
+        if not targets:
+            return None
+
+        summaries = []
+        for url in targets:
+            try:
+                summary = self._extract_page_summary(url)
+                if summary:
+                    summaries.append(summary)
+            except requests.RequestException as e:
+                self.logger.warning('Official site query failed for %s: %s', url, e)
+            except Exception as e:
+                self.logger.warning('Unexpected official site scrape error for %s: %s', url, e)
+
+        if not summaries:
+            return None
+        return '\n\n'.join(summaries[:3])
 
     def _next_weekday(self, current_date, weekday):
         days_ahead = (weekday - current_date.weekday()) % 7

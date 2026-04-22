@@ -94,9 +94,22 @@ def classify_request(config, state, providers, user_input):
     return state.route_general, 'default:general'
 
 
+def should_force_general_route(user_input, intent):
+    text = (user_input or '').lower()
+    if any(keyword in text for keyword in ['私密', '隱私', '保密', '機密', '內部', '個資', 'private', 'sensitive']):
+        return False
+    return intent in FACT_REQUIRED_INTENTS or intent in {INTENT_RULE, INTENT_COURSE, INTENT_ORG, INTENT_PROMOTION}
+
+
 def classify_question_intent(user_input):
     text = (user_input or '').lower()
 
+    if any(keyword in text for keyword in ['理事會成員', '理事會有哪些人', '理監事成員', '理監事有哪些人']):
+        return INTENT_MEMBER
+    if re.search(r'\d+\s*期.*(社長|副社長|組長|理事長|幹部)', text):
+        return INTENT_MEMBER
+    if any(keyword in text for keyword in ['理事長是誰', '本期社長', '現任社長', '社長是誰', '副社長是誰', '幹部是誰', '誰是社長', '誰是副社長']):
+        return INTENT_MEMBER
     if any(keyword in text for keyword in ['宣傳', '社務布達', '文宣', '宣傳文案', '邀請大家', '邀請來上課']):
         return INTENT_PROMOTION
     if any(keyword in text for keyword in ['會外會', '戶外活動']):
@@ -124,14 +137,19 @@ def classify_question_intent(user_input):
     return INTENT_FACT
 
 
-def get_route_provider_chain(state, route_label):
+def get_route_provider_chain(state, route_label, providers):
     # 不同類型問題走不同 provider 順序，兼顧成本、速度與保密需求。
     route_map = {
-        state.route_general: ['groq', 'xai', 'github', 'gemini', 'ollama'],
-        state.route_expert: ['github', 'xai', 'gemini', 'ollama', 'groq'],
+        state.route_general: ['gemini', 'groq', 'github', 'xai', 'ollama'],
+        state.route_expert: ['gemini', 'github', 'xai', 'ollama', 'groq'],
         state.route_local: ['ollama']
     }
-    return route_map.get(route_label, ['ollama', 'gemini'])
+    default_chain = ['gemini', 'ollama', 'groq']
+    raw_chain = route_map.get(route_label, default_chain)
+    available_chain = [name for name in raw_chain if providers.is_provider_available(name)]
+    if available_chain:
+        return available_chain
+    return [name for name in default_chain if providers.is_provider_available(name)]
 
 
 def is_club_manual(path):
@@ -218,6 +236,33 @@ def has_grounded_facts(knowledge_content):
         if section_has_meaningful_fact(title, body):
             return True
     return False
+
+
+def compact_knowledge_content(knowledge_content, max_sections=4, max_chars=3200):
+    if not knowledge_content:
+        return knowledge_content
+
+    sections = split_markdown_sections(knowledge_content)
+    if not sections:
+        return knowledge_content[:max_chars]
+
+    compact_blocks = []
+    total_chars = 0
+    for title, body in sections:
+        block = f'## {title}\n{body}'.strip()
+        if not block:
+            continue
+        remaining = max_chars - total_chars
+        if remaining <= 0:
+            break
+        if len(block) > remaining:
+            block = block[:remaining].rstrip()
+        compact_blocks.append(block)
+        total_chars += len(block)
+        if len(compact_blocks) >= max_sections or total_chars >= max_chars:
+            break
+
+    return '\n\n'.join(compact_blocks).strip() or knowledge_content[:max_chars]
 
 
 def extract_club_manual_context(content, intent):
@@ -321,6 +366,29 @@ def build_route_prompt(state, route_label, user_input, knowledge_content, intent
     )
 
 
+def build_provider_prompt(state, route_label, provider_name, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
+    compact_history = history
+    compact_lessons = lessons_guidance
+    compact_knowledge = knowledge_content
+
+    if provider_name == 'groq':
+        compact_knowledge = compact_knowledge_content(knowledge_content, max_sections=4, max_chars=3200)
+        compact_history = history[-2:] if history else None
+        compact_lessons = (lessons_guidance or '')[:600]
+
+    return build_route_prompt(
+        state,
+        route_label,
+        user_input,
+        compact_knowledge,
+        intent,
+        manual_exists,
+        manual_hit,
+        history=compact_history,
+        lessons_guidance=compact_lessons
+    )
+
+
 def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance=''):
     sections = load_knowledge_sections(config, logger)
     if not sections:
@@ -342,23 +410,21 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
         scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
 
+    official_site_info = providers.query_official_site_map(user_input, intent)
+    if official_site_info:
+        scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
+
     if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
         logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
         return '目前知識庫沒有這項資訊，或目前提供的社團資料不足以確認。'
 
     route_label, route_reason = classify_request(config, state, providers, user_input)
-    prompt = build_route_prompt(
-        state,
-        route_label,
-        user_input,
-        scoped_knowledge,
-        intent,
-        manual_exists,
-        manual_hit,
-        history,
-        lessons_guidance=lessons_guidance
-    )
-    provider_chain = get_route_provider_chain(state, route_label)
+    if route_label == state.route_local and should_force_general_route(user_input, intent):
+        logger.info('Overriding LOCAL route to GENERAL for non-sensitive club query intent=%s original_reason=%s', intent, route_reason)
+        route_label = state.route_general
+        route_reason = f'{route_reason}->override:general'
+
+    provider_chain = get_route_provider_chain(state, route_label, providers)
     logger.info('Router selected route=%s reason=%s intent=%s providers=%s', route_label, route_reason, intent, provider_chain)
 
     # 每個 provider 失敗就往下 fallback，整條鏈失敗才整體重試。
@@ -366,6 +432,18 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
         logger.debug('Route attempt %d/3 route=%s', attempt + 1, route_label)
         for provider_name in provider_chain:
             logger.debug('Attempting provider=%s route=%s', provider_name, route_label)
+            prompt = build_provider_prompt(
+                state,
+                route_label,
+                provider_name,
+                user_input,
+                scoped_knowledge,
+                intent,
+                manual_exists,
+                manual_hit,
+                history=history,
+                lessons_guidance=lessons_guidance
+            )
             result = None
             if provider_name == 'groq':
                 result = providers.ask_groq(prompt)
