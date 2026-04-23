@@ -95,3 +95,14 @@ flowchart TD
     LOG -.-> AS
     MON -.-> AS
 ```
+
+## Sidecar Dispatcher 設計（Phase 0/1）
+
+為避免 sidecar 影響主流程，dispatcher 設計採用 **best effort + fail-open fallback**：
+
+- 僅任務型請求觸發 sidecar；事實查詢與公告查詢預設不觸發。
+- sidecar timeout / exception / invalid response 時，必須立即回到本地回答路徑。
+- sidecar 不可攔截或阻塞 webhook ACK 與 LINE reply 基本流程。
+- sidecar 失敗時，對使用者必須使用保守訊息（例如：建議服務暫時不可用，先提供本地保守回答）。
+
+詳細 request/response schema、超時策略、錯誤碼與回退機制請見：`docs/sidecar_design.md`。
