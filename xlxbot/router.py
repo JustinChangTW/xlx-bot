@@ -2,7 +2,9 @@ import re
 import time
 
 from .knowledge import load_knowledge_sections
+from .response_strategy import build_insufficient_knowledge_response, format_teaching_plan_for_prompt
 from .sidecar import SidecarDispatcher, format_sidecar_guidance
+from .teaching_planner import build_teaching_plan
 
 
 INTENT_FACT = 'FACT_QUERY'
@@ -15,6 +17,7 @@ INTENT_RULE = 'RULE_QUERY'
 INTENT_COURSE = 'COURSE_QUERY'
 INTENT_ORG = 'ORG_QUERY'
 INTENT_PROMOTION = 'PROMOTION_QUERY'
+INTENT_HOW_TO = 'HOW_TO'
 MANUAL_PRIORITY_INTENTS = {INTENT_RULE, INTENT_COURSE, INTENT_ORG}
 COURSE_TIME_KEYWORDS = ['今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月']
 FACT_REQUIRED_INTENTS = {
@@ -24,6 +27,7 @@ FACT_REQUIRED_INTENTS = {
     INTENT_ANNOUNCEMENT,
     INTENT_HISTORY,
     INTENT_OVERVIEW,
+    INTENT_HOW_TO,
 }
 MISSING_INFO_MARKERS = [
     '[目前知識庫沒有這項資訊]',
@@ -121,6 +125,8 @@ def classify_question_intent(user_input):
         return INTENT_COURSE
     if any(keyword in text for keyword in ['規則', '章程', '制度', '請假規定', '出席規則', 'rule', 'policy']):
         return INTENT_RULE
+    if any(keyword in text for keyword in ['如何', '怎麼', '怎么样', '怎樣', '步驟', '教我', '教學步驟', 'how to']):
+        return INTENT_HOW_TO
     if any(keyword in text for keyword in ['課程', '課表', '上課', '教學', 'workshop', 'curriculum']):
         return INTENT_COURSE
     if any(keyword in text for keyword in ['組織', '架構', '組別', '職責', '社長', '副社長', 'officer structure']):
@@ -312,7 +318,7 @@ def build_knowledge_context(sections, intent):
     return '\n\n'.join(useful), manual_exists, manual_hit
 
 
-def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
+def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
     # 統一在這裡組 prompt，把知識庫、規則、歷史與本次問題串起來。
     prompt_parts = [
         '你現在是「健言小龍蝦」，你的任務是根據提供的知識庫回答。\n'
@@ -333,6 +339,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
     ]
     if lessons_guidance:
         prompt_parts.append(f'回答前套用 Lessons Learned：\n{lessons_guidance}\n\n')
+    if teaching_plan_guidance:
+        prompt_parts.append(f'回答前規劃（feature flag）：\n{teaching_plan_guidance}\n\n')
     if history:
         prompt_parts.append('對話歷史（僅供語氣連貫，不可覆蓋知識事實）：\n')
         for i, (user_msg, ai_msg) in enumerate(history[-state.max_history_length:], 1):
@@ -343,7 +351,7 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
     return ''.join(prompt_parts)
 
 
-def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
+def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
     route_note_map = {
         state.route_general: '本題屬於一般訓練或技巧型需求，請優先提供快速、實用、貼題的回答。',
         state.route_expert: '本題屬於深度分析或複雜邏輯需求，請優先提供嚴謹、條理清楚的回答。',
@@ -363,11 +371,12 @@ def build_route_prompt(state, route_label, user_input, knowledge_content, intent
         manual_exists,
         manual_hit,
         history,
-        lessons_guidance=lessons_guidance
+        lessons_guidance=lessons_guidance,
+        teaching_plan_guidance=teaching_plan_guidance
     )
 
 
-def build_provider_prompt(state, route_label, provider_name, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance=''):
+def build_provider_prompt(state, route_label, provider_name, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
     compact_history = history
     compact_lessons = lessons_guidance
     compact_knowledge = knowledge_content
@@ -386,7 +395,8 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
         manual_exists,
         manual_hit,
         history=compact_history,
-        lessons_guidance=compact_lessons
+        lessons_guidance=compact_lessons,
+        teaching_plan_guidance=teaching_plan_guidance
     )
 
 
@@ -398,6 +408,8 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
     intent = classify_question_intent(user_input)
     scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
+    teaching_plan = build_teaching_plan(intent, user_input) if config.teaching_planner_enabled else None
+    teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
 
     sidecar_guidance = ''
     if config.sidecar_enabled:
@@ -412,7 +424,9 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
     # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
-        return '目前提供的社團資料不足以確認（club_manual 尚無對應內容）。'
+        return build_insufficient_knowledge_response(
+            teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'
+        )
 
     course_info = providers.query_course_info(user_input)
     if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
@@ -428,7 +442,9 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
     if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
         logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
-        return '目前知識庫沒有這項資訊，或目前提供的社團資料不足以確認。'
+        return build_insufficient_knowledge_response(
+            teaching_plan.next_action if teaching_plan else '請提供可核對的社團資料來源後再詢問。'
+        )
 
     route_label, route_reason = classify_request(config, state, providers, user_input)
     if route_label == state.route_local and should_force_general_route(user_input, intent):
@@ -454,7 +470,8 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
                 manual_exists,
                 manual_hit,
                 history=history,
-                lessons_guidance=lessons_guidance
+                lessons_guidance=lessons_guidance,
+                teaching_plan_guidance=teaching_plan_guidance
             )
             result = None
             if provider_name == 'groq':
