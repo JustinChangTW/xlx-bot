@@ -112,6 +112,9 @@
 - `NGROK_API_URL` （可選，若未填會自動嘗試 `127.0.0.1:4040`、`localhost:4040`、`ngrok-tunnel:4040`）
 - `PUBLIC_BASE_URL` （可選，若你有固定公開網址，可直接指定，例如 `https://your-domain.example.com`）
 - `WEBHOOK_SYNC_TOKEN` （可選，用於手動呼叫 `/sync-webhook` 的保護 token）
+- `SIDECAR_ENABLED` （可選，預設 `false`，啟用 sidecar dispatcher）
+- `SIDECAR_MODE` （可選，預設 `mock`，目前僅提供建議草稿）
+- `SIDECAR_TIMEOUT_SECONDS` （可選，預設 `8`）
 
 > 建議：如果你有 Gemini API 的免費額度，可優先使用 `gemma-3-27b-instruct` / `gemma-3-12b-instruct` / `gemma-3-4b-instruct` / `gemma-3-1b-instruct`，這些 Gemma 3 指令型模型的免費請求額度較高。
 
