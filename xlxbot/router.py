@@ -401,7 +401,11 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
     sidecar_guidance = ''
     if config.sidecar_enabled:
-        dispatcher = SidecarDispatcher(logger)
+        dispatcher = SidecarDispatcher(
+            logger,
+            mode=config.sidecar_mode,
+            timeout_seconds=config.sidecar_timeout_seconds,
+        )
         decision, sidecar_result = dispatcher.dispatch(
             user_input,
             intent,

@@ -1,6 +1,6 @@
 import uuid
 
-from .gateway import MockGateway
+from .gateway import MockGateway, RealGateway
 from .schemas import DispatchDecision, SidecarRequest, SidecarResult
 
 
@@ -13,9 +13,21 @@ TASK_KEYWORDS = {
 
 
 class SidecarDispatcher:
-    def __init__(self, logger, gateway=None):
+    def __init__(self, logger, gateway=None, mode='mock', timeout_seconds=8):
         self.logger = logger
-        self.gateway = gateway or MockGateway()
+        self.mode = (mode or 'mock').strip().lower()
+        self.timeout_seconds = int(timeout_seconds)
+        self.gateway = gateway or self._build_gateway()
+
+    def _build_gateway(self):
+        if self.mode == 'mock':
+            return MockGateway()
+        if self.mode == 'real':
+            return RealGateway()
+
+        self.logger.warning('Invalid SIDECAR_MODE=%s, fallback to mock gateway', self.mode)
+        self.mode = 'mock'
+        return MockGateway()
 
     def _infer_task_type(self, user_input: str) -> str:
         text = (user_input or '').lower()
@@ -50,9 +62,10 @@ class SidecarDispatcher:
         )
 
         try:
-            result = self.gateway.call(request)
+            result = self.gateway.call(request, timeout_seconds=self.timeout_seconds)
             self.logger.info(
-                'Sidecar success task_type=%s status=%s approval=%s audit_ref=%s',
+                'Sidecar success mode=%s task_type=%s status=%s approval=%s audit_ref=%s',
+                self.mode,
                 result.task_type,
                 result.status,
                 result.requires_approval,
