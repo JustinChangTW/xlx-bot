@@ -401,8 +401,12 @@ def ask_ai(config, state, logger, providers, user_input, history=None, dispatche
 
     sidecar_guidance = ''
     if config.sidecar_enabled:
-        sidecar_dispatcher = dispatcher if dispatcher is not None else SidecarDispatcher(logger)
-        decision, sidecar_result = sidecar_dispatcher.dispatch(
+        dispatcher = SidecarDispatcher(
+            logger,
+            mode=config.sidecar_mode,
+            timeout_seconds=config.sidecar_timeout_seconds,
+        )
+        decision, sidecar_result = dispatcher.dispatch(
             user_input,
             intent,
             context={'route_intent': intent}
