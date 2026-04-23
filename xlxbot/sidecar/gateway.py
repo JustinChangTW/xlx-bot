@@ -6,7 +6,7 @@ from .schemas import SidecarRequest, SidecarResult
 class MockGateway:
     """Sidecar mock implementation for safe phase-1 rollout."""
 
-    def call(self, request: SidecarRequest) -> SidecarResult:
+    def call(self, request: SidecarRequest, timeout_seconds: int = 8) -> SidecarResult:
         digest = hashlib.sha1(f'{request.user_input}|{request.task_type}'.encode('utf-8')).hexdigest()[:12]
         task_type = request.task_type or 'suggest'
 
@@ -30,4 +30,13 @@ class MockGateway:
             risk_level='medium',
             requires_approval=True,
             audit_ref=f'mock-{digest}',
+        )
+
+
+class RealGateway:
+    """Reserved for real sidecar gateway integration."""
+
+    def call(self, request: SidecarRequest, timeout_seconds: int = 8) -> SidecarResult:
+        raise NotImplementedError(
+            f'real sidecar gateway is not implemented yet (timeout_seconds={timeout_seconds})'
         )

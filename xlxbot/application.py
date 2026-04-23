@@ -25,6 +25,7 @@ from .learning import (
 from .providers import ProviderService, check_ollama_model, check_ollama_service
 from .router import ask_ai
 from .runtime import RuntimeState
+from .sidecar import SidecarDispatcher
 from .webhook_sync import get_desired_webhook_url, sync_line_webhook, webhook_sync_worker
 
 
@@ -40,6 +41,7 @@ class BotApplication:
         self.app = Flask(__name__)
         self.state = RuntimeState()
         self.providers = ProviderService(self.config, self.state, self.logger)
+        self.sidecar_dispatcher = SidecarDispatcher(self.logger)
         self.line_bot_configuration = None
         self.handler = None
         if self.config.line_integration_enabled:
@@ -299,6 +301,7 @@ class BotApplication:
                     self.providers,
                     user_text,
                     history,
+                    dispatcher=self.sidecar_dispatcher,
                     lessons_guidance=lessons_guidance
                 )
                 if self.state.last_agent_decision:
