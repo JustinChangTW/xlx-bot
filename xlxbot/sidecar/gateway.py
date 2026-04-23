@@ -9,6 +9,7 @@ class MockGateway:
     def call(self, request: SidecarRequest, timeout_seconds: int = 8) -> SidecarResult:
         digest = hashlib.sha1(f'{request.user_input}|{request.task_type}'.encode('utf-8')).hexdigest()[:12]
         task_type = request.task_type or 'suggest'
+        status = 'degraded' if int(digest[-1], 16) % 2 else 'ok'
 
         outputs = [
             '先確認需求範圍與交付物，再拆成 3 個最小里程碑。',
@@ -23,7 +24,7 @@ class MockGateway:
             ]
 
         return SidecarResult(
-            status='ok',
+            status=status,
             task_type=task_type,
             confidence=0.66,
             outputs=outputs,
