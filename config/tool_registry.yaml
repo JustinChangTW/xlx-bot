@@ -1,0 +1,20 @@
+version: 1
+tools:
+  - name: knowledge_lookup
+    capability: retrieve_club_knowledge
+    risk: low
+    env_constraints:
+      - KNOWLEDGE_FILE
+  - name: provider_dispatch
+    capability: invoke_llm_provider_chain
+    risk: medium
+    env_constraints:
+      - OLLAMA_API_URL
+      - OLLAMA_MODEL_NAME
+  - name: webhook_sync
+    capability: sync_line_webhook_endpoint
+    risk: medium
+    env_constraints:
+      - LINE_ACCESS_TOKEN
+      - LINE_CHANNEL_SECRET
+      - PUBLIC_BASE_URL

@@ -22,9 +22,12 @@ from .learning import (
     parse_learned_tags,
     rebuild_lessons_and_troubleshooting,
 )
+from .approval_gate import ApprovalGate
+from .policy_engine import PolicyEngine
 from .providers import ProviderService, check_ollama_model, check_ollama_service
 from .router import ask_ai
 from .runtime import RuntimeState
+from .tool_registry import load_tool_registry
 from .webhook_sync import get_desired_webhook_url, sync_line_webhook, webhook_sync_worker
 
 
@@ -40,6 +43,9 @@ class BotApplication:
         self.app = Flask(__name__)
         self.state = RuntimeState()
         self.providers = ProviderService(self.config, self.state, self.logger)
+        self.tool_registry = load_tool_registry()
+        self.policy_engine = PolicyEngine()
+        self.approval_gate = ApprovalGate()
         self.line_bot_configuration = None
         self.handler = None
         if self.config.line_integration_enabled:
@@ -282,13 +288,24 @@ class BotApplication:
                 history = self.state.conversation_history[user_id]
 
                 if detect_user_correction(user_text):
+                    correction_decision = self.policy_engine.evaluate(
+                        intent='user_feedback',
+                        action='capture_correction',
+                        risk='low',
+                    )
+                    correction_approval = self.approval_gate.decide(correction_decision)
                     append_learning_event(
                         self.config,
                         self.logger,
                         event_type='USER_CORRECTION',
                         user_id=user_id,
                         user_input=user_text,
-                        details={'category': 'user_feedback'}
+                        details={'category': 'user_feedback'},
+                        intent='user_feedback',
+                        action='capture_correction',
+                        risk='low',
+                        approval='required' if correction_approval.requires_approval else 'not_required',
+                        fallback=correction_approval.fallback,
                     )
 
                 lessons_guidance = load_pre_answer_lessons(self.config, self.logger)
@@ -321,6 +338,12 @@ class BotApplication:
                     ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
 
                 if '資料不足' in ai_response or '查不到' in ai_response:
+                    insufficient_decision = self.policy_engine.evaluate(
+                        intent='qa_response',
+                        action='answer_with_insufficient_data',
+                        risk='low',
+                    )
+                    insufficient_approval = self.approval_gate.decide(insufficient_decision)
                     append_learning_event(
                         self.config,
                         self.logger,
@@ -328,9 +351,20 @@ class BotApplication:
                         user_id=user_id,
                         user_input=user_text,
                         bot_response=ai_response,
-                        details={'category': 'insufficient_data'}
+                        details={'category': 'insufficient_data'},
+                        intent='qa_response',
+                        action='answer_with_insufficient_data',
+                        risk='low',
+                        approval='required' if insufficient_approval.requires_approval else 'not_required',
+                        fallback=insufficient_approval.fallback,
                     )
                 elif '無法連線到任何 AI 服務' in ai_response:
+                    failure_decision = self.policy_engine.evaluate(
+                        intent='provider_runtime',
+                        action='provider_chain_failed',
+                        risk='medium',
+                    )
+                    failure_approval = self.approval_gate.decide(failure_decision)
                     append_learning_event(
                         self.config,
                         self.logger,
@@ -338,7 +372,12 @@ class BotApplication:
                         user_id=user_id,
                         user_input=user_text,
                         bot_response=ai_response,
-                        details={'reason': 'provider_chain_failed'}
+                        details={'reason': 'provider_chain_failed'},
+                        intent='provider_runtime',
+                        action='provider_chain_failed',
+                        risk='medium',
+                        approval='required' if failure_approval.requires_approval else 'not_required',
+                        fallback=failure_approval.fallback,
                     )
 
                 self.logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
@@ -354,7 +393,12 @@ class BotApplication:
                     event_type='ANSWER_SENT',
                     user_id=user_id,
                     user_input=user_text,
-                    bot_response=ai_response
+                    bot_response=ai_response,
+                    intent='qa_response',
+                    action='answer_sent',
+                    risk='low',
+                    approval='not_required',
+                    fallback='none',
                 )
                 rebuild_lessons_and_troubleshooting(self.config, self.logger)
 
@@ -368,6 +412,12 @@ class BotApplication:
                             )
                         )
                 except Exception as e:
+                    send_error_decision = self.policy_engine.evaluate(
+                        intent='line_delivery',
+                        action='send_line_reply',
+                        risk='medium',
+                    )
+                    send_error_approval = self.approval_gate.decide(send_error_decision)
                     append_learning_event(
                         self.config,
                         self.logger,
@@ -375,7 +425,12 @@ class BotApplication:
                         user_id=user_id,
                         user_input=user_text,
                         bot_response=ai_response,
-                        details={'error_type': 'send_line_reply_failed', 'reason': str(e)[:200]}
+                        details={'error_type': 'send_line_reply_failed', 'reason': str(e)[:200]},
+                        intent='line_delivery',
+                        action='send_line_reply',
+                        risk='medium',
+                        approval='required' if send_error_approval.requires_approval else 'not_required',
+                        fallback=send_error_approval.fallback,
                     )
                     self.logger.exception('Failed to send LINE reply')
 
