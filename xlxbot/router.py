@@ -2,6 +2,7 @@ import re
 import time
 
 from .knowledge import load_knowledge_sections
+from .sidecar import SidecarDispatcher, format_sidecar_guidance
 
 
 INTENT_FACT = 'FACT_QUERY'
@@ -398,6 +399,17 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     intent = classify_question_intent(user_input)
     scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
 
+    sidecar_guidance = ''
+    if config.sidecar_enabled:
+        dispatcher = SidecarDispatcher(logger)
+        decision, sidecar_result = dispatcher.dispatch(
+            user_input,
+            intent,
+            context={'route_intent': intent}
+        )
+        logger.info('Sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+        sidecar_guidance = format_sidecar_guidance(sidecar_result)
+
     # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
         return '目前提供的社團資料不足以確認（club_manual 尚無對應內容）。'
@@ -458,6 +470,8 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
             if result:
                 logger.info('Success with provider=%s route=%s intent=%s', provider_name, route_label, intent)
+                if sidecar_guidance:
+                    return f"{result}\n\n{sidecar_guidance}"
                 return result
 
             logger.warning('Provider failed provider=%s route=%s, trying next fallback', provider_name, route_label)

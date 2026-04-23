@@ -75,6 +75,9 @@ class AppConfig:
     memory_summarize_enabled: bool
     flask_host: str
     flask_port: int
+    sidecar_enabled: bool
+    sidecar_mode: str
+    sidecar_timeout_seconds: int
     required_env_vars: tuple[str, ...] = ('LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET')
 
     @property
@@ -130,6 +133,9 @@ class AppConfig:
             memory_summarize_enabled=os.getenv('MEMORY_SUMMARIZE_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
             flask_host=os.getenv('FLASK_HOST', '0.0.0.0'),
             flask_port=int(os.getenv('FLASK_PORT', '8080')),
+            sidecar_enabled=os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
+            sidecar_mode=os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock',
+            sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
         )
 
 
