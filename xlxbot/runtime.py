@@ -12,3 +12,4 @@ class RuntimeState:
     route_general: str = 'GENERAL'
     route_expert: str = 'EXPERT'
     route_local: str = 'LOCAL'
+    last_agent_decision: dict | None = None

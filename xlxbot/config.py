@@ -78,7 +78,7 @@ class AppConfig:
     sidecar_enabled: bool
     sidecar_mode: str
     sidecar_timeout_seconds: int
-    teaching_planner_enabled: bool
+    agent_path_enabled: bool
     required_env_vars: tuple[str, ...] = ('LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET')
 
     @property
@@ -137,7 +137,7 @@ class AppConfig:
             sidecar_enabled=os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
             sidecar_mode=os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock',
             sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
-            teaching_planner_enabled=os.getenv('TEACHING_PLANNER_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
+            agent_path_enabled=os.getenv('AGENT_PATH_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
         )
 
 
