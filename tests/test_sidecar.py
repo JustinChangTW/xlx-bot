@@ -65,18 +65,18 @@ class SidecarDispatcherTestCase(unittest.TestCase):
         failing_gateway.call.side_effect = RuntimeError('mock failure')
         dispatcher = SidecarDispatcher(self.logger, gateway=failing_gateway)
 
-        decision, result = dispatcher.dispatch('幫我 debug 這個錯誤', 'PROMOTION_QUERY')
+        decision, result = dispatcher.dispatch('幫我整理報告', 'PROMOTION_QUERY')
 
         self.assertFalse(decision.should_call_sidecar)
         self.assertEqual(decision.reason, 'sidecar-fallback')
-        self.assertEqual(decision.task_type, 'debug')
+        self.assertEqual(decision.task_type, 'report')
         self.assertIsNone(result)
         self.logger.warning.assert_called_once()
 
     def test_format_sidecar_guidance_structure(self):
         result = SidecarResult(
             status='ok',
-            task_type='debug',
+            task_type='report',
             confidence=0.8,
             outputs=['先重現問題', '再確認回歸測試'],
             risk_level='high',
@@ -87,12 +87,13 @@ class SidecarDispatcherTestCase(unittest.TestCase):
         guidance = format_sidecar_guidance(result)
 
         self.assertTrue(guidance.startswith('\n【Sidecar 任務建議（草稿）】'))
-        self.assertIn('- 任務類型：debug', guidance)
+        self.assertIn('- 任務類型：report', guidance)
         self.assertIn('- 風險等級：high', guidance)
         self.assertIn('- 需要人工核准：是', guidance)
         self.assertIn('- 建議 1：先重現問題', guidance)
         self.assertIn('- 建議 2：再確認回歸測試', guidance)
-        self.assertIn('- 說明：目前僅提供建議，不會自動執行。', guidance)
+        self.assertIn('請先確認：若你同意這份草案，我再繼續下一步。', guidance)
+        self.assertIn('- 說明：目前尚未執行任何動作。', guidance)
 
     def test_mock_gateway_status_is_ok_or_degraded(self):
         gateway = MockGateway()
@@ -114,6 +115,8 @@ class RouterSidecarToggleTestCase(unittest.TestCase):
             sidecar_enabled=False,
             router_enabled=False,
             router_model_name='test-router-model',
+            agent_path_enabled=False,
+            teaching_planner_enabled=False,
         )
         state = RuntimeState()
         logger = Mock()
@@ -153,6 +156,46 @@ class RouterSidecarToggleTestCase(unittest.TestCase):
             result = ask_ai(config, state, logger, providers, '社團名稱是什麼？')
 
         self.assertEqual(result, '主流程回覆')
+
+
+
+
+class RouterSidecarApprovalResponseTestCase(unittest.TestCase):
+    def test_router_returns_draft_only_when_sidecar_requires_approval(self):
+        config = Mock(
+            sidecar_enabled=True,
+            sidecar_mode='mock',
+            sidecar_timeout_seconds=8,
+            router_enabled=False,
+            router_model_name='test-router-model',
+            agent_path_enabled=False,
+            teaching_planner_enabled=False,
+        )
+        state = RuntimeState()
+        logger = Mock()
+        providers = _DummyProviders()
+        knowledge_sections = [Mock(path='knowledge/90_club_manual.md', content='# 規則\n- 每週四上課')]
+
+        fake_dispatcher = Mock()
+        fake_dispatcher.dispatch.return_value = (
+            Mock(should_call_sidecar=True, reason='task-query', task_type='plan'),
+            SidecarResult(
+                status='ok',
+                task_type='plan',
+                confidence=0.8,
+                outputs=['先提供草案'],
+                risk_level='medium',
+                requires_approval=True,
+                audit_ref='mock-approval',
+            ),
+        )
+
+        with patch('xlxbot.router.load_knowledge_sections', return_value=knowledge_sections):
+            result = ask_ai(config, state, logger, providers, '請給我規劃草案', history=[], dispatcher=fake_dispatcher)
+
+        self.assertTrue(result.startswith('【Sidecar 任務建議（草稿）】'))
+        self.assertIn('請先確認：若你同意這份草案，我再繼續下一步。', result)
+        self.assertNotIn('主流程回覆', result)
 
 
 if __name__ == '__main__':

@@ -11,8 +11,8 @@ class TaskDecision:
 
 
 INTENT_TO_ACTION = {
-    FACT: 'answer',
-    CONCEPT: 'answer',
+    FACT: 'report',
+    CONCEPT: 'report',
     HOW_TO: 'plan',
     PROJECT: 'suggest',
     DEBUG: 'report',
@@ -24,5 +24,5 @@ def dispatch_task(intent: str, user_input: str) -> TaskDecision:
     if any(keyword in text for keyword in ['執行', 'execute', 'run it', '直接做']):
         return TaskDecision(intent=intent, action='execute', reason='rule:execute-requested')
 
-    action = INTENT_TO_ACTION.get(intent, 'answer')
+    action = INTENT_TO_ACTION.get(intent, 'report')
     return TaskDecision(intent=intent, action=action, reason=f'rule:intent-map:{intent.lower()}')

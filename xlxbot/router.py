@@ -403,8 +403,9 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
     )
 
 
-def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance=''):
+def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance='', dispatcher=None):
     state.last_agent_decision = None
+    state.last_sidecar_decision = None
     sections = load_knowledge_sections(config, logger)
     if not sections:
         logger.error('Cannot load knowledge base sections')
@@ -424,32 +425,43 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
             'dispatch_reason': task_decision.reason,
         }
         logger.info(
-            'Agent path decision intent=%s action=%s status=%s',
+            'AUDIT agent decision intent=%s action=%s status=%s reason=%s',
             agent_intent,
             action_result.action,
             action_result.status,
+            task_decision.reason,
         )
-        if action_result.action == 'execute':
-            return 'Agent execute action is currently not-enabled.'
+        if action_result.action == 'execute' or action_result.status == 'forbidden':
+            return 'Agent execute action is currently forbidden by default. Please confirm before any execution.'
 
     scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
     teaching_plan = build_teaching_plan(intent, user_input) if config.teaching_planner_enabled else None
     teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
 
     sidecar_guidance = ''
-    if config.sidecar_enabled and intent in SIDECAR_TASK_INTENTS:
-        dispatcher = SidecarDispatcher(
+    if config.sidecar_enabled:
+        active_dispatcher = dispatcher or SidecarDispatcher(
             logger,
             mode=config.sidecar_mode,
             timeout_seconds=config.sidecar_timeout_seconds,
         )
-        decision, sidecar_result = dispatcher.dispatch(
+        decision, sidecar_result = active_dispatcher.dispatch(
             user_input,
             intent,
             context={'route_intent': intent}
         )
-        logger.info('Sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+        state.last_sidecar_decision = {
+            'enabled': True,
+            'should_call': decision.should_call_sidecar,
+            'reason': decision.reason,
+            'task_type': decision.task_type,
+            'requires_approval': bool(sidecar_result.requires_approval) if sidecar_result else False,
+            'fallback': decision.reason if not decision.should_call_sidecar else 'none',
+        }
+        logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
         sidecar_guidance = format_sidecar_guidance(sidecar_result)
+        if sidecar_result and sidecar_result.requires_approval:
+            return sidecar_guidance.strip()
 
     # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):

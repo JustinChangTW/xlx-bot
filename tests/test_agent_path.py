@@ -34,7 +34,7 @@ class AgentPathTestCase(unittest.TestCase):
         action_result = run_action(decision.action)
 
         self.assertEqual(decision.action, 'execute')
-        self.assertEqual(action_result.status, 'not-enabled')
+        self.assertEqual(action_result.status, 'forbidden')
 
     def test_ask_ai_returns_not_enabled_when_execute_action_requested(self):
         with patch.dict(os.environ, {'AGENT_PATH_ENABLED': 'true'}, clear=False):
@@ -50,10 +50,10 @@ class AgentPathTestCase(unittest.TestCase):
             history=[],
         )
 
-        self.assertEqual(response, 'Agent execute action is currently not-enabled.')
+        self.assertEqual(response, 'Agent execute action is currently forbidden by default. Please confirm before any execution.')
         self.assertIsNotNone(state.last_agent_decision)
         self.assertEqual(state.last_agent_decision.get('action'), 'execute')
-        self.assertEqual(state.last_agent_decision.get('action_status'), 'not-enabled')
+        self.assertEqual(state.last_agent_decision.get('action_status'), 'forbidden')
 
 
 if __name__ == '__main__':
