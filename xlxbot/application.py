@@ -301,6 +301,15 @@ class BotApplication:
                     history,
                     lessons_guidance=lessons_guidance
                 )
+                if self.state.last_agent_decision:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='AGENT_DECISION',
+                        user_id=user_id,
+                        user_input=user_text,
+                        details=self.state.last_agent_decision
+                    )
 
                 learned_matches = parse_learned_tags(ai_response)
                 if learned_matches:

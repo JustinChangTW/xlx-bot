@@ -1,6 +1,8 @@
 import re
 import time
 
+from .agent import classify_intent as classify_agent_intent
+from .agent import dispatch_task, run_action
 from .knowledge import load_knowledge_sections
 from .sidecar import SidecarDispatcher, format_sidecar_guidance
 
@@ -391,12 +393,34 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
 
 
 def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance=''):
+    state.last_agent_decision = None
     sections = load_knowledge_sections(config, logger)
     if not sections:
         logger.error('Cannot load knowledge base sections')
         return '小龍蝦找不到知識庫，請稍後再試。'
 
     intent = classify_question_intent(user_input)
+    if config.agent_path_enabled:
+        agent_intent, agent_intent_reason = classify_agent_intent(user_input)
+        task_decision = dispatch_task(agent_intent, user_input)
+        action_result = run_action(task_decision.action)
+        state.last_agent_decision = {
+            'enabled': True,
+            'intent': agent_intent,
+            'intent_reason': agent_intent_reason,
+            'action': action_result.action,
+            'action_status': action_result.status,
+            'dispatch_reason': task_decision.reason,
+        }
+        logger.info(
+            'Agent path decision intent=%s action=%s status=%s',
+            agent_intent,
+            action_result.action,
+            action_result.status,
+        )
+        if action_result.action == 'execute':
+            return 'Agent execute action is currently not-enabled.'
+
     scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
 
     sidecar_guidance = ''

@@ -115,6 +115,7 @@
 - `SIDECAR_ENABLED` （可選，預設 `false`，啟用 sidecar dispatcher）
 - `SIDECAR_MODE` （可選，預設 `mock`，目前僅提供建議草稿）
 - `SIDECAR_TIMEOUT_SECONDS` （可選，預設 `8`）
+- `AGENT_PATH_ENABLED` （可選，預設 `false`，啟用 intent→task→action 的 agent path）
 
 > 建議：如果你有 Gemini API 的免費額度，可優先使用 `gemma-3-27b-instruct` / `gemma-3-12b-instruct` / `gemma-3-4b-instruct` / `gemma-3-1b-instruct`，這些 Gemma 3 指令型模型的免費請求額度較高。
 
