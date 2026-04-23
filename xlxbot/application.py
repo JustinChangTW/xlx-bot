@@ -326,7 +326,26 @@ class BotApplication:
                         event_type='AGENT_DECISION',
                         user_id=user_id,
                         user_input=user_text,
-                        details=self.state.last_agent_decision
+                        details=self.state.last_agent_decision,
+                        intent=self.state.last_agent_decision.get('intent', 'unknown'),
+                        action=self.state.last_agent_decision.get('action', 'unknown'),
+                        risk='medium' if self.state.last_agent_decision.get('action') == 'execute' else 'low',
+                        approval='required' if self.state.last_agent_decision.get('action') == 'execute' else 'not_required',
+                        fallback=self.state.last_agent_decision.get('dispatch_reason', 'none'),
+                    )
+                if self.state.last_sidecar_decision:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='SIDECAR_DECISION',
+                        user_id=user_id,
+                        user_input=user_text,
+                        details=self.state.last_sidecar_decision,
+                        intent=self.state.last_sidecar_decision.get('task_type', 'unknown'),
+                        action='sidecar_dispatch',
+                        risk='medium',
+                        approval='required' if self.state.last_sidecar_decision.get('requires_approval') else 'not_required',
+                        fallback=self.state.last_sidecar_decision.get('fallback', self.state.last_sidecar_decision.get('reason', 'none')),
                     )
 
                 learned_matches = parse_learned_tags(ai_response)

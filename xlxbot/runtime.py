@@ -13,3 +13,4 @@ class RuntimeState:
     route_expert: str = 'EXPERT'
     route_local: str = 'LOCAL'
     last_agent_decision: dict | None = None
+    last_sidecar_decision: dict | None = None
