@@ -10,6 +10,7 @@ TASK_KEYWORDS = {
     'debug': ['debug', '除錯', '修復', '錯誤', '故障'],
     'project': ['專案', '任務', '重構', '整合'],
 }
+TASK_INTENTS = {'PROMOTION_QUERY', 'HOW_TO'}
 
 
 class SidecarDispatcher:
@@ -37,13 +38,12 @@ class SidecarDispatcher:
         return ''
 
     def decide(self, user_input: str, intent: str) -> DispatchDecision:
+        if intent not in TASK_INTENTS:
+            return DispatchDecision(False, 'non-task-intent', '')
+
         task_type = self._infer_task_type(user_input)
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
-
-        # 事實型與公告查詢預設不需要走 sidecar。
-        if intent in {'FACT_QUERY', 'MEMBER_QUERY', 'ACTIVITY_QUERY', 'ANNOUNCEMENT_QUERY', 'HISTORY_INTRO', 'GENERAL_OVERVIEW'}:
-            return DispatchDecision(False, 'fact-first', task_type)
 
         return DispatchDecision(True, 'task-query', task_type)
 

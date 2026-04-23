@@ -31,6 +31,7 @@ FACT_REQUIRED_INTENTS = {
     INTENT_OVERVIEW,
     INTENT_HOW_TO,
 }
+SIDECAR_TASK_INTENTS = {INTENT_PROMOTION, INTENT_HOW_TO}
 MISSING_INFO_MARKERS = [
     '[目前知識庫沒有這項資訊]',
     '[目前知識庫缺少',
@@ -436,7 +437,7 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
 
     sidecar_guidance = ''
-    if config.sidecar_enabled:
+    if config.sidecar_enabled and intent in SIDECAR_TASK_INTENTS:
         dispatcher = SidecarDispatcher(
             logger,
             mode=config.sidecar_mode,
