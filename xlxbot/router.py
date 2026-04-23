@@ -390,7 +390,7 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
     )
 
 
-def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance=''):
+def ask_ai(config, state, logger, providers, user_input, history=None, dispatcher=None, lessons_guidance=''):
     sections = load_knowledge_sections(config, logger)
     if not sections:
         logger.error('Cannot load knowledge base sections')
@@ -401,8 +401,8 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
 
     sidecar_guidance = ''
     if config.sidecar_enabled:
-        dispatcher = SidecarDispatcher(logger)
-        decision, sidecar_result = dispatcher.dispatch(
+        sidecar_dispatcher = dispatcher if dispatcher is not None else SidecarDispatcher(logger)
+        decision, sidecar_result = sidecar_dispatcher.dispatch(
             user_input,
             intent,
             context={'route_intent': intent}
