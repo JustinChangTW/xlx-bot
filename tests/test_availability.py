@@ -370,9 +370,10 @@ class AvailabilityTestCase(unittest.TestCase):
 
         decision, result = dispatcher.dispatch('請給我規劃建議', 'RULE_QUERY')
 
-        self.assertTrue(decision.should_call_sidecar)
-        self.assertIsNotNone(result)
-        self.assertEqual(fake_gateway.timeout_seconds, 15)
+        self.assertFalse(decision.should_call_sidecar)
+        self.assertEqual(decision.reason, 'non-task-intent')
+        self.assertIsNone(result)
+        self.assertIsNone(fake_gateway.timeout_seconds)
 
     def test_sidecar_dispatcher_invalid_mode_falls_back_to_mock(self):
         dispatcher = SidecarDispatcher(self.logger, mode='invalid-mode', timeout_seconds=8)
