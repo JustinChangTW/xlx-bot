@@ -2,84 +2,50 @@
 
 本文件定義 xlx-bot 與 sidecar 的最小契約，目標是「不破壞主流程、可回退、可審計」。
 
-## 1) Request Schema
+## Request Schema
 
 ```json
 {
-  "trace_id": "string",
-  "timestamp": "2026-04-23T12:34:56Z",
   "user_input": "string",
-  "intent": "PROJECT|DEBUG|FACT|CONCEPT|OTHER",
-  "task_type": "project|debug|suggest|plan",
+  "task_type": "plan|suggest|debug|project",
+  "intent": "string",
+  "trace_id": "string",
   "context": {
-    "route_intent": "string",
-    "locale": "zh-TW"
-  },
-  "audit": {
-    "caller": "xlx-bot",
-    "session_id": "string",
-    "request_id": "string"
+    "route_intent": "string"
   }
 }
 ```
 
-## 2) Response Schema
+## Response Schema
 
 ```json
 {
-  "trace_id": "string",
   "status": "ok|degraded|failed",
-  "task_type": "project|debug|suggest|plan",
+  "task_type": "plan|suggest|debug|project",
   "confidence": 0.66,
   "outputs": ["string"],
   "risk_level": "low|medium|high",
   "requires_approval": true,
-  "error": {
-    "code": "E_SIDECAR_TIMEOUT",
-    "message": "string"
-  },
-  "audit": {
-    "provider": "sidecar-mock",
-    "latency_ms": 1200,
-    "decision_ref": "string"
-  }
+  "audit_ref": "string",
+  "error": "string"
 }
 ```
 
-## 3) Error Codes
+## Error Handling
 
-| Error Code | 意義 | 必要行為 |
-|---|---|---|
-| `E_SIDECAR_TIMEOUT` | sidecar 逾時 | 立即 fallback 到本地 answer path |
-| `E_SIDECAR_BAD_RESPONSE` | 回傳 schema 不合法或欄位缺漏 | 立即 fallback 到本地 answer path |
-| `E_SIDECAR_UNAVAILABLE` | sidecar service down / 連線失敗 | 立即 fallback 到本地 answer path |
-| `E_SIDECAR_EXCEPTION` | sidecar 執行中例外 | 立即 fallback 到本地 answer path |
-| `E_SIDECAR_DISABLED` | sidecar 關閉 | 直接走本地 answer path（非錯誤） |
+- timeout / exception / invalid response 一律視為 `failed`
+- 主系統必須 fallback 到既有回答路徑
+- sidecar 不可阻斷 LINE webhook ack 與回覆
 
-## 4) Fallback Policy（明定）
+## Safety Constraints
 
-以下情境一律回到本地 answer path，不可嘗試攔截主流程：
+- Phase 1 僅允許 `suggest/plan/debug/project` 草案輸出
+- 不允許自動 execute
+- 高風險動作需 `requires_approval=true`
 
-1. timeout
-2. invalid response
-3. service down
 
-可附帶保守訊息（例如「建議服務暫時不可用，先提供本地回答」），但不得假裝 sidecar 成功。
+## Runtime Config (Phase 2)
 
-## 5) Audit 欄位要求
-
-Request/Response 都必須帶 `audit` 欄位：
-
-- Request audit：追蹤呼叫來源與請求識別（`caller/session_id/request_id`）
-- Response audit：追蹤執行結果（`provider/latency_ms/decision_ref`）
-
-若缺少必要 audit 欄位，視為 `E_SIDECAR_BAD_RESPONSE`。
-
-## 6) Non-goals（明定）
-
-sidecar 在 Phase 0/1 **不負責也不得接管**：
-
-1. webhook 接收與 ACK
-2. LINE reply 主回覆流程
-
-換言之：sidecar 是 best-effort 建議器，不是主流程控制器。
+- `SIDECAR_MODE=openclaw` 時，需設定 `OPENCLAW_BASE_URL`。
+- 可用 `OPENCLAW_ENDPOINT_PATH` 指定 dispatch API 路徑。
+- 可用 `OPENCLAW_API_KEY` 傳送 bearer token。

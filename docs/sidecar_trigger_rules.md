@@ -1,54 +1,36 @@
 # Sidecar Trigger Rules（Phase 0/1）
 
-## 1) 目標
+## 原則
 
-以「主流程優先、失敗可回退」為核心，定義 sidecar 何時可建議啟用。
+1. 先保住主流程（knowledge-first + anti-hallucination）
+2. sidecar 只處理任務型需求，且先給建議草稿
+3. sidecar 失敗必須可無痛回退
 
-## 2) 不走 Sidecar（硬規則）
+## 預設不觸發 sidecar
 
-以下意圖一律走本地 answer path：
+- FACT_QUERY
+- MEMBER_QUERY
+- ACTIVITY_QUERY
+- ANNOUNCEMENT_QUERY
+- HISTORY_INTRO
+- GENERAL_OVERVIEW
 
-- `FACT`
-- `CONCEPT`
+以上類型以既有回答流程為主。
 
-理由：這兩類問題屬於知識查詢與說明，應遵循 knowledge-first + anti-hallucination 的本地流程。
+## 可觸發 sidecar（關鍵字命中）
 
-## 3) 可建議走 Sidecar（軟規則）
+- plan：計畫、規劃、roadmap、里程碑
+- suggest：建議、方案、草稿、怎麼做
+- debug：debug、除錯、修復、錯誤、故障
+- project：專案、任務、重構、整合
 
-以下意圖可建議走 sidecar（僅建議，不可強制）：
+## Fallback 規則
 
-- `PROJECT`
-- `DEBUG`
+- 若 sidecar timeout / failed / invalid，記錄 warning 後回既有流程
+- 不可因 sidecar 出錯導致使用者收不到主流程回覆
 
-觸發後仍需滿足：
+## 版本策略
 
-- `SIDECAR_ENABLED=true`
-- sidecar 可用
-- 不影響 webhook / LINE reply 主流程
-
-## 4) Fallback（強制）
-
-sidecar 若出現以下任一情況，必須立即回本地 answer path：
-
-1. timeout
-2. invalid response
-3. service down
-
-不得因 sidecar 失敗而中斷本地回答。
-
-## 5) Non-goals（明定）
-
-sidecar 不在本規則範圍內的能力：
-
-1. 不接管 webhook
-2. 不阻斷 LINE reply
-
-## 6) Decision Matrix
-
-| Intent | Sidecar Policy | 失敗時行為 |
-|---|---|---|
-| FACT | 禁止 | 本地 answer path |
-| CONCEPT | 禁止 | 本地 answer path |
-| PROJECT | 可建議 | 本地 answer path |
-| DEBUG | 可建議 | 本地 answer path |
-| OTHER | 預設不啟用（可由後續版本擴充） | 本地 answer path |
+- `SIDECAR_ENABLED=false`：完全不觸發（預設）
+- `SIDECAR_ENABLED=true` + `SIDECAR_MODE=mock`：只提供建議草稿
+- `SIDECAR_ENABLED=true` + `SIDECAR_MODE=openclaw`：呼叫 OpenClaw gateway（仍僅提供建議，不自動執行）

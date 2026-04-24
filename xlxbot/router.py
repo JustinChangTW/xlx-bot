@@ -4,9 +4,7 @@ import time
 from .agent import classify_intent as classify_agent_intent
 from .agent import dispatch_task, run_action
 from .knowledge import load_knowledge_sections
-from .response_strategy import build_insufficient_knowledge_response, format_teaching_plan_for_prompt
 from .sidecar import SidecarDispatcher, format_sidecar_guidance
-from .teaching_planner import build_teaching_plan
 
 
 INTENT_FACT = 'FACT_QUERY'
@@ -462,6 +460,17 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
         sidecar_guidance = format_sidecar_guidance(sidecar_result)
         if sidecar_result and sidecar_result.requires_approval:
             return sidecar_guidance.strip()
+
+    sidecar_guidance = ''
+    if config.sidecar_enabled:
+        dispatcher = SidecarDispatcher(logger, config=config)
+        decision, sidecar_result = dispatcher.dispatch(
+            user_input,
+            intent,
+            context={'route_intent': intent}
+        )
+        logger.info('Sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+        sidecar_guidance = format_sidecar_guidance(sidecar_result)
 
     # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):

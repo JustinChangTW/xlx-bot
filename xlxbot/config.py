@@ -78,7 +78,9 @@ class AppConfig:
     sidecar_enabled: bool
     sidecar_mode: str
     sidecar_timeout_seconds: int
-    agent_path_enabled: bool
+    openclaw_base_url: str
+    openclaw_endpoint_path: str
+    openclaw_api_key: str
     required_env_vars: tuple[str, ...] = ('LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET')
 
     @property
@@ -137,7 +139,9 @@ class AppConfig:
             sidecar_enabled=os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
             sidecar_mode=os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock',
             sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
-            agent_path_enabled=os.getenv('AGENT_PATH_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
+            openclaw_base_url=os.getenv('OPENCLAW_BASE_URL', '').strip().rstrip('/'),
+            openclaw_endpoint_path=os.getenv('OPENCLAW_ENDPOINT_PATH', '/v1/sidecar/dispatch').strip() or '/v1/sidecar/dispatch',
+            openclaw_api_key=os.getenv('OPENCLAW_API_KEY', '').strip(),
         )
 
 

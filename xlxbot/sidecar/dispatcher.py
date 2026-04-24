@@ -1,43 +1,48 @@
-import os
 import uuid
 
-from .gateway import MockGateway, OpenClawGatewayClient, RealGateway
+from .gateway import MockGateway, OpenClawGateway
 from .schemas import DispatchDecision, SidecarRequest, SidecarResult
 
 
 TASK_KEYWORDS = {
     'plan': ['計畫', '規劃', 'roadmap', '里程碑'],
     'suggest': ['建議', '方案', '草稿', '怎麼做'],
-    'report': ['report', '報告', '回報', '整理重點'],
+    'debug': ['debug', '除錯', '修復', '錯誤', '故障'],
+    'project': ['專案', '任務', '重構', '整合'],
 }
-TASK_INTENTS = {'PROMOTION_QUERY', 'HOW_TO'}
+
+FACT_FIRST_INTENTS = {
+    'FACT_QUERY',
+    'MEMBER_QUERY',
+    'ACTIVITY_QUERY',
+    'ANNOUNCEMENT_QUERY',
+    'HISTORY_INTRO',
+    'GENERAL_OVERVIEW',
+}
+
+
+def build_sidecar_gateway(config, logger):
+    mode = (getattr(config, 'sidecar_mode', 'mock') or 'mock').strip().lower()
+    timeout = getattr(config, 'sidecar_timeout_seconds', 8)
+
+    if mode == 'openclaw':
+        return OpenClawGateway(
+            base_url=getattr(config, 'openclaw_base_url', ''),
+            endpoint_path=getattr(config, 'openclaw_endpoint_path', '/v1/sidecar/dispatch'),
+            api_key=getattr(config, 'openclaw_api_key', ''),
+            timeout_seconds=timeout,
+        )
+
+    if mode != 'mock':
+        logger.warning('Unknown SIDECAR_MODE=%s, fallback to mock', mode)
+    return MockGateway()
 
 
 class SidecarDispatcher:
-    def __init__(self, logger, gateway=None, mode='mock', timeout_seconds=8):
+    def __init__(self, logger, config=None, gateway=None):
         self.logger = logger
-        self.mode = (mode or 'mock').strip().lower()
-        self.timeout_seconds = int(timeout_seconds)
-        self.gateway = gateway or self._build_gateway()
-
-    def _build_gateway(self):
-        if self.mode == 'mock':
-            return MockGateway()
-        if self.mode in {'real', 'openclaw'}:
-            return OpenClawGatewayClient(
-                base_url=os.getenv('OPENCLAW_GATEWAY_URL', 'http://127.0.0.1:9099'),
-                endpoint=os.getenv('OPENCLAW_GATEWAY_ENDPOINT', '/v1/dispatch'),
-                timeout_seconds=int(os.getenv('OPENCLAW_TIMEOUT_SECONDS', str(self.timeout_seconds))),
-                max_retries=int(os.getenv('OPENCLAW_MAX_RETRIES', '2')),
-                circuit_fail_threshold=int(os.getenv('OPENCLAW_CIRCUIT_FAIL_THRESHOLD', '3')),
-                circuit_cooldown_seconds=int(os.getenv('OPENCLAW_CIRCUIT_COOLDOWN_SECONDS', '30')),
-            )
-        if self.mode == 'legacy-real':
-            return RealGateway()
-
-        self.logger.warning('Invalid SIDECAR_MODE=%s, fallback to mock gateway', self.mode)
-        self.mode = 'mock'
-        return MockGateway()
+        self.config = config
+        self.gateway = gateway or build_sidecar_gateway(config, logger)
 
     def _infer_task_type(self, user_input: str) -> str:
         text = (user_input or '').lower()
@@ -47,12 +52,13 @@ class SidecarDispatcher:
         return ''
 
     def decide(self, user_input: str, intent: str) -> DispatchDecision:
-        if intent not in TASK_INTENTS:
-            return DispatchDecision(False, 'non-task-intent', '')
-
         task_type = self._infer_task_type(user_input)
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
+
+        # 事實型與公告查詢預設不需要走 sidecar。
+        if intent in FACT_FIRST_INTENTS:
+            return DispatchDecision(False, 'fact-first', task_type)
 
         return DispatchDecision(True, 'task-query', task_type)
 
@@ -71,10 +77,12 @@ class SidecarDispatcher:
         )
 
         try:
-            result = self.gateway.call(request, timeout_seconds=self.timeout_seconds)
+            result = self.gateway.call(request)
+            if result.status not in {'ok', 'degraded'}:
+                self.logger.warning('Sidecar non-ok status=%s trace_id=%s', result.status, trace_id)
+                return DispatchDecision(False, 'sidecar-non-ok', decision.task_type), None
             self.logger.info(
-                'AUDIT sidecar decision=success mode=%s task_type=%s status=%s requires_approval=%s audit_ref=%s fallback=none',
-                self.mode,
+                'Sidecar success task_type=%s status=%s approval=%s audit_ref=%s',
                 result.task_type,
                 result.status,
                 result.requires_approval,
@@ -82,7 +90,7 @@ class SidecarDispatcher:
             )
             return decision, result
         except Exception as exc:  # defensive fallback
-            self.logger.warning('AUDIT sidecar decision=fallback trace_id=%s reason=%s fallback=sidecar-fallback', trace_id, str(exc)[:200])
+            self.logger.warning('Sidecar failed trace_id=%s reason=%s', trace_id, str(exc)[:200])
             return DispatchDecision(False, 'sidecar-fallback', decision.task_type), None
 
 
@@ -99,10 +107,5 @@ def format_sidecar_guidance(result: SidecarResult | None) -> str:
     ]
     for idx, item in enumerate(result.outputs, 1):
         lines.append(f'- 建議 {idx}：{item}')
-
-    if result.requires_approval:
-        lines.append('- 請先確認：若你同意這份草案，我再繼續下一步。')
-        lines.append('- 說明：目前尚未執行任何動作。')
-    else:
-        lines.append('- 說明：目前僅提供建議，不會自動執行。')
+    lines.append('- 說明：目前僅提供建議，不會自動執行。')
     return '\n'.join(lines)
