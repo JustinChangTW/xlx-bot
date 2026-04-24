@@ -18,3 +18,38 @@ tools:
       - LINE_ACCESS_TOKEN
       - LINE_CHANNEL_SECRET
       - PUBLIC_BASE_URL
+  - name: answer_response
+    capability: return_grounded_answer_to_user
+    risk: low
+    env_constraints: []
+  - name: learning_capture
+    capability: record_learning_event_or_user_correction
+    risk: low
+    env_constraints:
+      - MEMORY_DIR
+  - name: troubleshooting_capture
+    capability: record_error_and_troubleshooting_event
+    risk: low
+    env_constraints:
+      - MEMORY_DIR
+  - name: docs_draft
+    capability: produce_documentation_draft_for_review
+    risk: medium
+    env_constraints: []
+  - name: sidecar_dispatch
+    capability: request_openclaw_sidecar_suggestions
+    risk: medium
+    env_constraints:
+      - SIDECAR_ENABLED
+  - name: formal_knowledge_write
+    capability: write_or_update_formal_knowledge_files
+    risk: high
+    env_constraints: []
+  - name: code_change
+    capability: change_runtime_code_or_configuration
+    risk: high
+    env_constraints: []
+  - name: deploy
+    capability: deploy_or_modify_runtime_environment
+    risk: high
+    env_constraints: []

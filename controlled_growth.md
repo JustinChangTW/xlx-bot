@@ -22,3 +22,10 @@
 ## 安全邊界
 - `learned_knowledge.txt` 不再被視為正式知識來源。
 - 只有 `knowledge/` 與核可來源參與主要回答檢索。
+
+## 目前實作狀態
+- 已完成：learning events、lessons、troubleshooting、自動重建
+- 已完成：使用者更正與回答結果的事件記錄
+- 已完成：待審核知識只寫入 `learned_knowledge.txt`
+- 已完成：受控工具與 policy/approval 骨架
+- 尚未完成：formal review workflow UI / 向量式 RAG / 核准後自動執行

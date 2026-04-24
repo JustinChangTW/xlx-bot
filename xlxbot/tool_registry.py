@@ -17,6 +17,13 @@ class ToolRegistry:
     version: int
     tools: list[ToolDefinition]
 
+    def get(self, name: str):
+        target = (name or '').strip()
+        for tool in self.tools:
+            if tool.name == target:
+                return tool
+        return None
+
 
 _YAML_AVAILABLE = importlib.util.find_spec('yaml') is not None
 if _YAML_AVAILABLE:

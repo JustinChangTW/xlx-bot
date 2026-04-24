@@ -1,3 +1,3 @@
-line_channel_access_token: "/8QC8ngAFK7NpMEcWHGy9RV8+o1d/tFkgXtAKINkQ+hpyT1NNjmes1OjOdWF3Ziuufywxzo6fWEXQUPmoqAKex8eXT3e3DTqD3Z01iJNBQ4nyL51fcquRq0qK8URtq0fRRPCQ6nJF+S8gsh+0LyECAdB04t89/1O/w1cDnyilFU="
-line_channel_secret: "4f2e027d9e316bc9d47b6af0747fc212"
-manager_user_id: "Ubc8d0585ef2c5ead4d131a57ddc60334"
+line_channel_access_token: "PLEASE_SET_IN_ENV_OR_SECRET_MANAGER"
+line_channel_secret: "PLEASE_SET_IN_ENV_OR_SECRET_MANAGER"
+manager_user_id: "PLEASE_SET_MANAGER_USER_ID"

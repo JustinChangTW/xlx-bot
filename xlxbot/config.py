@@ -81,6 +81,9 @@ class AppConfig:
     openclaw_base_url: str
     openclaw_endpoint_path: str
     openclaw_api_key: str
+    agent_path_enabled: bool
+    teaching_planner_enabled: bool
+    official_site_retrieval_enabled: bool
     required_env_vars: tuple[str, ...] = ('LINE_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET')
 
     @property
@@ -142,6 +145,9 @@ class AppConfig:
             openclaw_base_url=os.getenv('OPENCLAW_BASE_URL', '').strip().rstrip('/'),
             openclaw_endpoint_path=os.getenv('OPENCLAW_ENDPOINT_PATH', '/v1/sidecar/dispatch').strip() or '/v1/sidecar/dispatch',
             openclaw_api_key=os.getenv('OPENCLAW_API_KEY', '').strip(),
+            agent_path_enabled=os.getenv('AGENT_PATH_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
+            teaching_planner_enabled=os.getenv('TEACHING_PLANNER_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
+            official_site_retrieval_enabled=os.getenv('OFFICIAL_SITE_RETRIEVAL_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
         )
 
 

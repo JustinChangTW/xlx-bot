@@ -40,7 +40,6 @@ services:
     ports:
       - "4040:4040"
     environment:
-      # 請確認這裡使用的是你剛取得的 Token
-      - NGROK_AUTHTOKEN=1Y6tPLC6qz0I3zRWLNxvmJTk6KW_2sBRtgqFsFYzX6y7hihAQ
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN:-}
     # 這裡指向 xlx-workstation 的 8080 端口
     command: http xlx-workstation:8080

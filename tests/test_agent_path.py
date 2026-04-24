@@ -3,10 +3,13 @@ import unittest
 from unittest.mock import patch
 
 from xlxbot.agent import classify_intent, dispatch_task, run_action
+from xlxbot.approval_gate import ApprovalGate
 from xlxbot.config import AppConfig
 from xlxbot.logging_setup import setup_logging
+from xlxbot.policy_engine import PolicyEngine
 from xlxbot.router import ask_ai
 from xlxbot.runtime import RuntimeState
+from xlxbot.tool_registry import load_tool_registry
 
 
 class _NoopProviders:
@@ -54,6 +57,47 @@ class AgentPathTestCase(unittest.TestCase):
         self.assertIsNotNone(state.last_agent_decision)
         self.assertEqual(state.last_agent_decision.get('action'), 'execute')
         self.assertEqual(state.last_agent_decision.get('action_status'), 'forbidden')
+
+    def test_docs_request_enters_pending_review_when_control_stack_is_injected(self):
+        config = AppConfig.from_env()
+        state = RuntimeState()
+
+        response = ask_ai(
+            config=config,
+            state=state,
+            logger=self.logger,
+            providers=_NoopProviders(),
+            user_input='請幫我更新 README 與系統文件',
+            history=[],
+            tool_registry=load_tool_registry(),
+            policy_engine=PolicyEngine(),
+            approval_gate=ApprovalGate(),
+        )
+
+        self.assertIn('pending review', response)
+        self.assertIsNotNone(state.last_tool_decision)
+        self.assertEqual(state.last_tool_decision.get('tool_name'), 'docs_draft')
+        self.assertTrue(state.last_tool_decision.get('requires_approval'))
+
+    def test_high_risk_command_is_forbidden_by_control_stack(self):
+        config = AppConfig.from_env()
+        state = RuntimeState()
+
+        response = ask_ai(
+            config=config,
+            state=state,
+            logger=self.logger,
+            providers=_NoopProviders(),
+            user_input='請直接部署並修改程式碼',
+            history=[],
+            tool_registry=load_tool_registry(),
+            policy_engine=PolicyEngine(),
+            approval_gate=ApprovalGate(),
+        )
+
+        self.assertIn('高風險行為', response)
+        self.assertIsNotNone(state.last_tool_decision)
+        self.assertFalse(state.last_tool_decision.get('allowed'))
 
 
 if __name__ == '__main__':

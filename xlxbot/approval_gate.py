@@ -15,6 +15,13 @@ class ApprovalGate:
     """Approval gate interface; currently returns the default policy result."""
 
     def decide(self, decision: PolicyDecision):
+        if not decision.allowed:
+            return ApprovalResult(
+                approved=False,
+                requires_approval=False,
+                fallback=decision.fallback,
+                reason=decision.reason,
+            )
         return ApprovalResult(
             approved=not decision.approval_required,
             requires_approval=decision.approval_required,

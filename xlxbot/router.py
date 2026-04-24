@@ -4,7 +4,9 @@ import time
 from .agent import classify_intent as classify_agent_intent
 from .agent import dispatch_task, run_action
 from .knowledge import load_knowledge_sections
+from .response_strategy import build_insufficient_knowledge_response, format_teaching_plan_for_prompt
 from .sidecar import SidecarDispatcher, format_sidecar_guidance
+from .teaching_planner import build_teaching_plan
 
 
 INTENT_FACT = 'FACT_QUERY'
@@ -49,6 +51,118 @@ NON_FACT_SECTION_MARKERS = [
     '維護提醒',
     '更新資訊',
 ]
+HIGH_RISK_COMMAND_KEYWORDS = [
+    '改程式',
+    '修改程式',
+    '改 code',
+    '改code',
+    '寫入 knowledge',
+    '寫入knowledge',
+    '更新知識庫',
+    '部署',
+    'deploy',
+    '上線',
+    'push',
+    'commit',
+]
+DOC_REQUEST_KEYWORDS = ['README', 'readme', '文件', 'docs', '文件說明', '系統說明', '架構文件']
+ERROR_REPORT_KEYWORDS = ['錯誤', '壞掉', '故障', '失敗', 'exception', 'traceback', 'bug', 'debug', '除錯']
+CORRECTION_KEYWORDS = ['你錯了', '你剛剛', '應該是', '更正', '修正', '請改成']
+
+
+def classify_openclaw_task_type(user_input, intent):
+    text = (user_input or '').strip().lower()
+    if any(keyword.lower() in text for keyword in CORRECTION_KEYWORDS):
+        return 'user_correction'
+    if any(keyword.lower() in text for keyword in ERROR_REPORT_KEYWORDS):
+        return 'error_report'
+    if any(keyword.lower() in text for keyword in DOC_REQUEST_KEYWORDS):
+        return 'docs_request'
+    if any(keyword.lower() in text for keyword in HIGH_RISK_COMMAND_KEYWORDS):
+        return 'command'
+    if intent in {INTENT_PROMOTION, INTENT_HOW_TO}:
+        return 'command'
+    return 'knowledge_qa'
+
+
+def select_controlled_tool(task_type, user_input):
+    text = (user_input or '').lower()
+    if task_type == 'user_correction':
+        return 'learning_capture', 'capture_correction', 'low'
+    if task_type == 'error_report':
+        return 'troubleshooting_capture', 'record_error', 'low'
+    if task_type == 'docs_request':
+        return 'docs_draft', 'docs_draft', 'medium'
+    if task_type == 'command':
+        if any(keyword in text for keyword in HIGH_RISK_COMMAND_KEYWORDS):
+            if any(keyword in text for keyword in ['部署', 'deploy', '上線']):
+                return 'deploy', 'deploy', 'high'
+            if any(keyword in text for keyword in ['知識庫', 'knowledge']):
+                return 'formal_knowledge_write', 'write_formal_knowledge', 'high'
+            return 'code_change', 'code_change', 'high'
+        return 'sidecar_dispatch', 'sidecar_dispatch', 'medium'
+    return 'knowledge_lookup', 'knowledge_lookup', 'low'
+
+
+def evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_gate, task_type, user_input):
+    tool_name, action, risk = select_controlled_tool(task_type, user_input)
+    if not tool_registry or not policy_engine or not approval_gate:
+        state.last_tool_decision = {
+            'task_type': task_type,
+            'tool_name': tool_name,
+            'action': action,
+            'risk': risk,
+            'allowed': True,
+            'requires_approval': False,
+            'fallback': 'none',
+            'reason': 'control_stack_not_injected',
+        }
+        return state.last_tool_decision
+    tool_definition = tool_registry.get(tool_name) if tool_registry else None
+    if tool_definition is None:
+        state.last_tool_decision = {
+            'task_type': task_type,
+            'tool_name': tool_name,
+            'action': action,
+            'risk': risk,
+            'allowed': False,
+            'requires_approval': False,
+            'fallback': 'forbidden',
+            'reason': f'unregistered_tool:{tool_name}',
+        }
+        return state.last_tool_decision
+
+    policy_decision = policy_engine.evaluate(
+        intent=task_type,
+        action=action,
+        risk=tool_definition.risk or risk,
+        metadata={'tool_name': tool_definition.name},
+    ) if policy_engine and approval_gate else None
+    approval_result = approval_gate.decide(policy_decision) if policy_decision and approval_gate else None
+
+    state.last_tool_decision = {
+        'task_type': task_type,
+        'tool_name': tool_definition.name,
+        'action': action,
+        'risk': tool_definition.risk or risk,
+        'allowed': bool(policy_decision.allowed) if policy_decision else True,
+        'requires_approval': bool(approval_result.requires_approval) if approval_result else False,
+        'fallback': approval_result.fallback if approval_result else 'none',
+        'reason': approval_result.reason if approval_result else 'no_policy',
+    }
+    return state.last_tool_decision
+
+
+def build_controlled_action_response(task_type, tool_decision):
+    if not tool_decision.get('allowed', True):
+        if task_type == 'command':
+            return '這類操作屬於高風險行為，目前系統禁止直接執行，例如改程式、部署或寫入正式知識庫。'
+        return '這個請求目前不在允許的受控工具範圍內。'
+    if tool_decision.get('requires_approval'):
+        if task_type == 'docs_request':
+            return '文件草稿需求已判定為 pending review。系統可以先提出草稿建議，但不會自動宣告文件已完成或自動套用正式變更。'
+        return '這個請求需要 pending review。系統目前不會直接執行，而是保留為建議或待人工確認。'
+    return ''
 
 
 def classify_request_with_rules(state, user_input):
@@ -401,15 +515,42 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
     )
 
 
-def ask_ai(config, state, logger, providers, user_input, history=None, lessons_guidance='', dispatcher=None):
+def ask_ai(
+    config,
+    state,
+    logger,
+    providers,
+    user_input,
+    history=None,
+    lessons_guidance='',
+    dispatcher=None,
+    tool_registry=None,
+    policy_engine=None,
+    approval_gate=None,
+):
     state.last_agent_decision = None
     state.last_sidecar_decision = None
+    state.last_tool_decision = None
     sections = load_knowledge_sections(config, logger)
     if not sections:
         logger.error('Cannot load knowledge base sections')
         return '小龍蝦找不到知識庫，請稍後再試。'
 
     intent = classify_question_intent(user_input)
+    task_type = classify_openclaw_task_type(user_input, intent)
+    tool_decision = evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_gate, task_type, user_input)
+    logger.info(
+        'AUDIT controlled tool task_type=%s tool=%s allowed=%s approval=%s reason=%s',
+        task_type,
+        tool_decision.get('tool_name'),
+        tool_decision.get('allowed'),
+        tool_decision.get('requires_approval'),
+        tool_decision.get('reason'),
+    )
+    controlled_response = build_controlled_action_response(task_type, tool_decision)
+    if controlled_response:
+        return controlled_response
+
     if config.agent_path_enabled:
         agent_intent, agent_intent_reason = classify_agent_intent(user_input)
         task_decision = dispatch_task(agent_intent, user_input)
@@ -437,7 +578,7 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
     teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
 
     sidecar_guidance = ''
-    if config.sidecar_enabled:
+    if config.sidecar_enabled and task_type == 'command':
         active_dispatcher = dispatcher or SidecarDispatcher(
             logger,
             mode=config.sidecar_mode,
@@ -461,34 +602,24 @@ def ask_ai(config, state, logger, providers, user_input, history=None, lessons_g
         if sidecar_result and sidecar_result.requires_approval:
             return sidecar_guidance.strip()
 
-    sidecar_guidance = ''
-    if config.sidecar_enabled:
-        dispatcher = SidecarDispatcher(logger, config=config)
-        decision, sidecar_result = dispatcher.dispatch(
-            user_input,
-            intent,
-            context={'route_intent': intent}
-        )
-        logger.info('Sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
-        sidecar_guidance = format_sidecar_guidance(sidecar_result)
-
     # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
         return build_insufficient_knowledge_response(
             teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'
         )
 
-    course_info = providers.query_course_info(user_input)
-    if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
-        scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
+    if config.official_site_retrieval_enabled:
+        course_info = providers.query_course_info(user_input)
+        if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
+            scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
 
-    news_info = providers.query_latest_news(user_input)
-    if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
-        scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
+        news_info = providers.query_latest_news(user_input)
+        if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
+            scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
 
-    official_site_info = providers.query_official_site_map(user_input, intent)
-    if official_site_info:
-        scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
+        official_site_info = providers.query_official_site_map(user_input, intent)
+        if official_site_info:
+            scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
 
     if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
         logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)

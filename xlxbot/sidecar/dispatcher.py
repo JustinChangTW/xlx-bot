@@ -39,10 +39,20 @@ def build_sidecar_gateway(config, logger):
 
 
 class SidecarDispatcher:
-    def __init__(self, logger, config=None, gateway=None):
+    def __init__(self, logger, config=None, gateway=None, mode=None, timeout_seconds=None):
         self.logger = logger
         self.config = config
-        self.gateway = gateway or build_sidecar_gateway(config, logger)
+        requested_mode = (mode or getattr(config, 'sidecar_mode', 'mock') or 'mock').strip().lower()
+        self.mode = requested_mode if requested_mode in {'mock', 'openclaw'} else 'mock'
+        self.timeout_seconds = int(timeout_seconds or getattr(config, 'sidecar_timeout_seconds', 8) or 8)
+        if requested_mode not in {'mock', 'openclaw'}:
+            self.logger.warning('Unknown sidecar mode=%s, fallback to mock', requested_mode)
+        if gateway is not None:
+            self.gateway = gateway
+        elif config is not None:
+            self.gateway = build_sidecar_gateway(config, logger)
+        else:
+            self.gateway = MockGateway()
 
     def _infer_task_type(self, user_input: str) -> str:
         text = (user_input or '').lower()
@@ -53,12 +63,19 @@ class SidecarDispatcher:
 
     def decide(self, user_input: str, intent: str) -> DispatchDecision:
         task_type = self._infer_task_type(user_input)
+        text = (user_input or '').lower()
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
 
         # 事實型與公告查詢預設不需要走 sidecar。
         if intent in FACT_FIRST_INTENTS:
             return DispatchDecision(False, 'fact-first', task_type)
+
+        if intent in {'RULE_QUERY', 'COURSE_QUERY', 'ORG_QUERY'}:
+            project_like_keywords = ['重構', '整合', '專案', 'project', 'debug', '除錯', '錯誤', '故障']
+            if any(keyword in text for keyword in project_like_keywords):
+                return DispatchDecision(True, 'task-query', task_type)
+            return DispatchDecision(False, 'non-task-intent', task_type)
 
         return DispatchDecision(True, 'task-query', task_type)
 

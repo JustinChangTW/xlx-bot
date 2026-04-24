@@ -27,6 +27,7 @@ from .policy_engine import PolicyEngine
 from .providers import ProviderService, check_ollama_model, check_ollama_service
 from .router import ask_ai
 from .runtime import RuntimeState
+from .sidecar import SidecarDispatcher
 from .tool_registry import load_tool_registry
 from .webhook_sync import get_desired_webhook_url, sync_line_webhook, webhook_sync_worker
 
@@ -46,6 +47,7 @@ class BotApplication:
         self.tool_registry = load_tool_registry()
         self.policy_engine = PolicyEngine()
         self.approval_gate = ApprovalGate()
+        self.sidecar_dispatcher = SidecarDispatcher(self.logger, config=self.config)
         self.line_bot_configuration = None
         self.handler = None
         if self.config.line_integration_enabled:
@@ -317,8 +319,25 @@ class BotApplication:
                     user_text,
                     history,
                     dispatcher=self.sidecar_dispatcher,
-                    lessons_guidance=lessons_guidance
+                    lessons_guidance=lessons_guidance,
+                    tool_registry=self.tool_registry,
+                    policy_engine=self.policy_engine,
+                    approval_gate=self.approval_gate,
                 )
+                if self.state.last_tool_decision:
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='TOOL_DECISION',
+                        user_id=user_id,
+                        user_input=user_text,
+                        details=self.state.last_tool_decision,
+                        intent=self.state.last_tool_decision.get('task_type', 'unknown'),
+                        action=self.state.last_tool_decision.get('tool_name', 'unknown'),
+                        risk=self.state.last_tool_decision.get('risk', 'unknown'),
+                        approval='required' if self.state.last_tool_decision.get('requires_approval') else 'not_required',
+                        fallback=self.state.last_tool_decision.get('fallback', 'none'),
+                    )
                 if self.state.last_agent_decision:
                     append_learning_event(
                         self.config,
