@@ -15,7 +15,20 @@ def get_learning_paths(config):
     }
 
 
-def append_learning_event(config, logger, event_type, user_id=None, user_input=None, bot_response=None, details=None):
+def append_learning_event(
+    config,
+    logger,
+    event_type,
+    user_id=None,
+    user_input=None,
+    bot_response=None,
+    details=None,
+    intent='unknown',
+    action='unknown',
+    risk='unknown',
+    approval='not_required',
+    fallback='none',
+):
     paths = get_learning_paths(config)
     os.makedirs(config.memory_dir, exist_ok=True)
     event = {
@@ -24,7 +37,12 @@ def append_learning_event(config, logger, event_type, user_id=None, user_input=N
         'user_id': user_id or 'unknown',
         'user_input': (user_input or '')[:500],
         'bot_response': (bot_response or '')[:500],
-        'details': details or {}
+        'details': details or {},
+        'intent': intent,
+        'action': action,
+        'risk': risk,
+        'approval': approval,
+        'fallback': fallback,
     }
     try:
         with open(paths['events'], 'a', encoding='utf-8') as f:

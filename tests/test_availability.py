@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from xlxbot.providers import ProviderService
 from xlxbot.router import INTENT_ACTIVITY, INTENT_COURSE, INTENT_PROMOTION, classify_question_intent
+from xlxbot.sidecar.dispatcher import SidecarDispatcher
 from linebot.v3.exceptions import InvalidSignatureError
 
 from xlxbot.application import BotApplication
@@ -339,6 +340,46 @@ class AvailabilityTestCase(unittest.TestCase):
 
         self.assertIn('會外會｜春季踏青交流', activity_result)
         self.assertIn('會外會｜春季踏青交流', promotion_result)
+
+    def test_sidecar_dispatcher_uses_mock_mode_and_forwards_timeout(self):
+        class FakeGateway:
+            def __init__(self):
+                self.timeout_seconds = None
+
+            def call(self, request, timeout_seconds=8):
+                from xlxbot.sidecar.schemas import SidecarResult
+
+                self.timeout_seconds = timeout_seconds
+                return SidecarResult(
+                    status='ok',
+                    task_type=request.task_type or 'suggest',
+                    confidence=0.9,
+                    outputs=['ok'],
+                    risk_level='low',
+                    requires_approval=False,
+                    audit_ref='fake-audit',
+                )
+
+        fake_gateway = FakeGateway()
+        dispatcher = SidecarDispatcher(
+            self.logger,
+            gateway=fake_gateway,
+            mode='mock',
+            timeout_seconds=15,
+        )
+
+        decision, result = dispatcher.dispatch('請給我規劃建議', 'RULE_QUERY')
+
+        self.assertFalse(decision.should_call_sidecar)
+        self.assertEqual(decision.reason, 'non-task-intent')
+        self.assertIsNone(result)
+        self.assertIsNone(fake_gateway.timeout_seconds)
+
+    def test_sidecar_dispatcher_invalid_mode_falls_back_to_mock(self):
+        dispatcher = SidecarDispatcher(self.logger, mode='invalid-mode', timeout_seconds=8)
+
+        self.assertEqual(dispatcher.mode, 'mock')
+        self.assertEqual(dispatcher.gateway.__class__.__name__, 'MockGateway')
 
 
 if __name__ == '__main__':
