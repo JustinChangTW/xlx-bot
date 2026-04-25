@@ -255,6 +255,42 @@ class AvailabilityTestCase(unittest.TestCase):
         self.assertIn('4/30', result)
         self.assertIn('T.M. 訓練主題：即席想像', result)
 
+    def test_query_course_info_this_week_uses_calendar_week(self):
+        import datetime
+
+        provider = ProviderService(AppConfig.from_env(), object(), self.logger)
+        schedule_html = '''
+        <html><body>
+        <table>
+          <tr><th>週次</th><th>日期</th><th>開場主題</th><th>TM訓練主題</th><th>總評</th><th>教育訓練</th><th>講師</th></tr>
+          <tr><td>八</td><td>4/23</td><td>TED</td><td>拍賣會</td><td>羅妙家</td><td>故事延伸力</td><td>傅瑩貞</td></tr>
+          <tr><td>九</td><td>4/30</td><td>TED</td><td>瑕疵品</td><td>王寶慶</td><td>對話巧藝</td><td>吳瑞哲</td></tr>
+        </table>
+        </body></html>
+        '''
+
+        class FakeResponse:
+            def __init__(self, html):
+                self.content = html.encode('utf-8')
+
+            def raise_for_status(self):
+                return None
+
+        class FakeDate(datetime.date):
+            @classmethod
+            def today(cls):
+                return cls(2026, 4, 25)
+
+        with patch('xlxbot.providers.datetime.date', FakeDate), patch(
+            'xlxbot.providers.requests.get',
+            return_value=FakeResponse(schedule_html),
+        ):
+            result = provider.query_course_info('本周課程主題與 TM 題目是什麼')
+
+        self.assertIn('4/23', result)
+        self.assertIn('T.M. 訓練主題：拍賣會', result)
+        self.assertIn('教育訓練：故事延伸力', result)
+
     def test_query_course_info_tomorrow_returns_fixed_thursday_hint_when_no_class(self):
         import datetime
 

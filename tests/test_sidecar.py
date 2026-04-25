@@ -61,6 +61,24 @@ class SidecarTestCase(unittest.TestCase):
         self.assertTrue(decision.should_call_sidecar)
         self.assertEqual(result.audit_ref, 'r1')
 
+    def test_dispatch_promotion_query_calls_gateway(self):
+        expected = SidecarResult(
+            status='ok',
+            task_type='suggest',
+            confidence=0.8,
+            outputs=['先理解需求，再分析課程資訊，最後產生 LINE 文宣。'],
+            risk_level='medium',
+            requires_approval=True,
+            audit_ref='r2',
+        )
+        dispatcher = SidecarDispatcher(self.logger, gateway=DummyGateway(result=expected))
+
+        decision, result = dispatcher.dispatch('請為本周課程寫文宣', 'PROMOTION_QUERY')
+
+        self.assertTrue(decision.should_call_sidecar)
+        self.assertEqual(decision.task_type, 'suggest')
+        self.assertEqual(result.audit_ref, 'r2')
+
     def test_dispatch_fallback_on_exception(self):
         dispatcher = SidecarDispatcher(self.logger, gateway=DummyGateway(raise_error=True))
         decision, result = dispatcher.dispatch('請幫我規劃重構里程碑', 'RULE_QUERY')

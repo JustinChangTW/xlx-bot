@@ -3,8 +3,9 @@
 - 更新時間：2026-04-25
 
 ## 重複錯誤與建議處理
-- allow_policy intent=knowledge_qa action=knowledge_lookup risk=low tool=knowledge_lookup（最近 3 次）
-- insufficient_data（最近 2 次）
+- allow_policy intent=knowledge_qa action=knowledge_lookup risk=low tool=knowledge_lookup（最近 13 次）
+- insufficient_data（最近 8 次）
+- missing_env_constraints:SIDECAR_ENABLED（最近 3 次）
 - pending_review_policy intent=command action=sidecar_dispatch risk=medium tool=sidecar_dispatch（最近 2 次）
 
 ## 建議

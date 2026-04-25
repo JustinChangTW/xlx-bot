@@ -141,10 +141,12 @@ class AppConfig:
             memory_summarize_enabled=os.getenv('MEMORY_SUMMARIZE_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
             flask_host=os.getenv('FLASK_HOST', '0.0.0.0'),
             flask_port=int(os.getenv('FLASK_PORT', '8080')),
-            sidecar_enabled=os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
-            sidecar_mode=os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock',
-            sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
             openclaw_base_url=os.getenv('OPENCLAW_BASE_URL', '').strip().rstrip('/'),
+            sidecar_enabled=(os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'))
+                or (not os.getenv('SIDECAR_MODE') and bool(os.getenv('OPENCLAW_BASE_URL', '').strip()))
+                or (os.getenv('SIDECAR_MODE', '').strip().lower() == 'openclaw' and bool(os.getenv('OPENCLAW_BASE_URL', '').strip())),
+            sidecar_mode=(os.getenv('SIDECAR_MODE', '').strip().lower() or 'openclaw') if os.getenv('OPENCLAW_BASE_URL', '').strip() else (os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock'),
+            sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
             openclaw_endpoint_path=os.getenv('OPENCLAW_ENDPOINT_PATH', '/v1/sidecar/dispatch').strip() or '/v1/sidecar/dispatch',
             openclaw_api_key=os.getenv('OPENCLAW_API_KEY', '').strip(),
             openclaw_phase=os.getenv('OPENCLAW_PHASE', 'suggest').strip().lower() or 'suggest',

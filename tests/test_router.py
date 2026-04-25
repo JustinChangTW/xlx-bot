@@ -1,6 +1,18 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from xlxbot.router import classify_question_intent, INTENT_FACT, INTENT_COURSE, INTENT_RULE, classify_openclaw_task_type, select_controlled_tool
+from xlxbot.router import (
+    INTENT_FACT,
+    INTENT_COURSE,
+    INTENT_RULE,
+    build_controlled_action_response,
+    build_openclaw_prompt_guidance,
+    classify_openclaw_task_type,
+    classify_question_intent,
+    select_controlled_tool,
+    RequestStateTracker,
+    should_retrieve_official_course_schedule,
+)
+from xlxbot.sidecar.schemas import SidecarResult
 
 
 class RouterTestCase(unittest.TestCase):
@@ -46,6 +58,67 @@ class RouterTestCase(unittest.TestCase):
         self.assertEqual(tool_name, 'code_change')
         self.assertEqual(action, 'code_change')
         self.assertEqual(risk, 'high')
+
+    def test_missing_sidecar_does_not_block_line_reply(self):
+        response = build_controlled_action_response(
+            'command',
+            {
+                'tool_name': 'sidecar_dispatch',
+                'missing_constraints': ['SIDECAR_ENABLED'],
+                'requires_approval': True,
+            },
+        )
+
+        self.assertEqual(response, '')
+
+    def test_openclaw_guidance_directs_reply_without_becoming_fact_source(self):
+        guidance = build_openclaw_prompt_guidance(
+            SidecarResult(
+                status='ok',
+                task_type='suggest',
+                confidence=0.8,
+                outputs=['先理解課程資料，再寫成 LINE 文宣。'],
+                risk_level='medium',
+                requires_approval=True,
+                audit_ref='audit-1',
+            )
+        )
+
+        self.assertIn('理解問題', guidance)
+        self.assertIn('分析問題', guidance)
+        self.assertIn('解決問題', guidance)
+        self.assertIn('不是社團事實來源', guidance)
+
+    def test_request_tracker_allows_nested_step_transition(self):
+        tracker = RequestStateTracker()
+
+        tracker.start_step('provider_attempt_1')
+        tracker.start_step('provider_gemini_call')
+        tracker.end_step(success=True, result='success_with_gemini')
+
+        summary = tracker.get_summary()
+        self.assertEqual(summary['steps_count'], 2)
+        self.assertEqual(summary['steps'][0]['name'], 'provider_attempt_1')
+        self.assertEqual(summary['steps'][1]['name'], 'provider_gemini_call')
+
+    def test_schedule_queries_force_official_course_retrieval(self):
+        class Config:
+            official_site_retrieval_enabled = False
+
+        self.assertTrue(
+            should_retrieve_official_course_schedule(
+                Config(),
+                '請為本周課程主題與 TM 題目作文宣',
+                'PROMOTION_QUERY',
+            )
+        )
+        self.assertFalse(
+            should_retrieve_official_course_schedule(
+                Config(),
+                '請介紹社團文化',
+                'GENERAL_OVERVIEW',
+            )
+        )
 
 
 if __name__ == '__main__':

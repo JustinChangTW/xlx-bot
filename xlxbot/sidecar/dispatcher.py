@@ -7,7 +7,7 @@ from ..tool_executor import ToolExecutor
 
 TASK_KEYWORDS = {
     'plan': ['計畫', '規劃', 'roadmap', '里程碑'],
-    'suggest': ['建議', '方案', '草稿', '怎麼做'],
+    'suggest': ['建議', '方案', '草稿', '怎麼做', '宣傳', '文宣', '社務布達', '作文宣', '寫文宣'],
     'debug': ['debug', '除錯', '修復', '錯誤', '故障'],
     'project': ['專案', '任務', '重構', '整合'],
 }
@@ -93,7 +93,7 @@ class SidecarDispatcher:
 
         if intent in {'RULE_QUERY', 'COURSE_QUERY', 'ORG_QUERY'}:
             project_like_keywords = ['重構', '整合', '專案', 'project', 'debug', '除錯', '錯誤', '故障']
-            if any(keyword in text for keyword in keywords):
+            if any(keyword in text for keyword in project_like_keywords):
                 return DispatchDecision(True, 'task-query', task_type)
             return DispatchDecision(False, 'non-task-intent', task_type)
 

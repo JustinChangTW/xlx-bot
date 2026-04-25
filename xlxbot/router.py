@@ -24,6 +24,15 @@ INTENT_PROMOTION = 'PROMOTION_QUERY'
 INTENT_HOW_TO = 'HOW_TO'
 MANUAL_PRIORITY_INTENTS = {INTENT_RULE, INTENT_COURSE, INTENT_ORG}
 COURSE_TIME_KEYWORDS = ['今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月']
+COURSE_SCHEDULE_RETRIEVAL_KEYWORDS = COURSE_TIME_KEYWORDS + [
+    'tm',
+    't.m',
+    't.m.',
+    '題目',
+    '課程主題',
+    '課表',
+    '會內會',
+]
 FACT_REQUIRED_INTENTS = {
     INTENT_FACT,
     INTENT_MEMBER,
@@ -68,7 +77,7 @@ HIGH_RISK_COMMAND_KEYWORDS = [
     'commit',
 ]
 DOC_REQUEST_KEYWORDS = ['README', 'readme', '文件', 'docs', '文件說明', '系統說明', '架構文件']
-ERROR_REPORT_KEYWORDS = ['錯誤', '壞掉', '故障', '失敗', 'exception', 'traceback', 'bug', 'debug', '除錯']
+ERROR_REPORT_KEYWORDS = ['錯誤', '出錯', '壞掉', '故障', '失敗', 'exception', 'traceback', 'bug', 'debug', '除錯']
 CORRECTION_KEYWORDS = ['你錯了', '你剛剛', '應該是', '更正', '修正', '請改成']
 
 
@@ -80,7 +89,7 @@ class RequestStateTracker:
         self.errors = []
         self.retries = []
         self.current_step = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def start_step(self, step_name, details=None):
         with self.lock:
@@ -161,6 +170,9 @@ def classify_openclaw_task_type(user_input, intent):
     if any(keyword.lower() in text for keyword in DOC_REQUEST_KEYWORDS):
         return 'docs_request'
     if any(keyword.lower() in text for keyword in HIGH_RISK_COMMAND_KEYWORDS):
+        return 'command'
+    task_keywords = ['計畫', '規劃', 'roadmap', '里程碑', '建議', '方案', '草稿', '怎麼做', '宣傳', '文宣', '社務布達', 'debug', '除錯', '修復', '故障', '專案', '任務', '重構', '整合']
+    if any(keyword.lower() in text for keyword in task_keywords):
         return 'command'
     if intent in {INTENT_PROMOTION, INTENT_HOW_TO}:
         return 'command'
@@ -256,6 +268,8 @@ def evaluate_controlled_tool_use(state, config, tool_registry, policy_engine, ap
 
 def build_controlled_action_response(task_type, tool_decision):
     if tool_decision.get('missing_constraints'):
+        if tool_decision.get('tool_name') == 'sidecar_dispatch':
+            return ''
         if task_type == 'command':
             missing = ', '.join(tool_decision.get('missing_constraints', []))
             return f'目前受控執行鏈尚未就緒，已改為 pending review。缺少條件：{missing}'
@@ -290,6 +304,8 @@ def classify_request_with_rules(state, user_input):
 
 def classify_request_with_model(config, state, providers, user_input):
     if not config.router_enabled:
+        return None, None
+    if not hasattr(providers, 'ask_ollama_with_model'):
         return None, None
     # 關鍵字分不出來時，再用本地模型把請求分成 GENERAL / EXPERT / LOCAL。
     router_prompt = (
@@ -331,6 +347,8 @@ def should_force_general_route(user_input, intent):
 
 def classify_question_intent(user_input):
     text = (user_input or '').lower()
+    if text.strip() in {'這是什麼', '這是什麼?', '這是什麼？'}:
+        return INTENT_FACT
 
     if any(keyword in text for keyword in ['理事會成員', '理事會有哪些人', '理監事成員', '理監事有哪些人']):
         return INTENT_MEMBER
@@ -541,7 +559,40 @@ def build_knowledge_context(sections, intent):
     return '\n\n'.join(useful), manual_exists, manual_hit
 
 
-def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
+def build_openclaw_prompt_guidance(sidecar_result):
+    if not sidecar_result or not sidecar_result.outputs:
+        return ''
+
+    outputs = '\n'.join(f'- {item}' for item in sidecar_result.outputs if str(item).strip())
+    if not outputs:
+        return ''
+
+    return (
+        'OpenClaw 回覆指揮（只作為回答策略，不是社團事實來源）：\n'
+        f'- 任務類型：{sidecar_result.task_type}\n'
+        f'- 風險等級：{sidecar_result.risk_level}\n'
+        f'- 需要人工核准：{"是" if sidecar_result.requires_approval else "否"}\n'
+        '請依序完成：\n'
+        '1. 理解問題：先對焦使用者真正要的交付物。\n'
+        '2. 分析問題：只用知識內容確認可用事實，缺資料要明講。\n'
+        '3. 解決問題：給出可直接貼到 LINE 的繁體中文回覆。\n'
+        'OpenClaw 建議：\n'
+        f'{outputs}\n'
+        '限制：不可宣稱已自動執行、已更新知識庫、已部署，或把 OpenClaw 草稿當成已核准事實。\n'
+    )
+
+
+def should_retrieve_official_course_schedule(config, user_input, intent):
+    if getattr(config, 'official_site_retrieval_enabled', False):
+        return True
+    if intent not in {INTENT_COURSE, INTENT_PROMOTION}:
+        return False
+
+    text = (user_input or '').lower()
+    return any(keyword.lower() in text for keyword in COURSE_SCHEDULE_RETRIEVAL_KEYWORDS)
+
+
+def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance='', openclaw_guidance=''):
     # 統一在這裡組 prompt，把知識庫、規則、歷史與本次問題串起來。
     prompt_parts = [
         '你現在是「健言小龍蝦」，你的任務是根據提供的知識庫回答。\n'
@@ -552,7 +603,7 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         '4. 先回答使用者真正問的核心問題，再補充最多 2 點相關資訊。\n'
         '5. 若問題含有「目前、最近、現任、最新」等時間語意，優先使用知識中的『最新公告/近期活動/目前資訊』段落。\n'
         '6. 回答要貼題、簡潔、可核對；避免空泛長篇。\n'
-        '7. 不要要求或假設你已經上網查詢；本回合僅依賴提供的知識內容。\n'
+        '7. 如知識無則請上網查詢；不要只賴提供的知識內容。\n'
         '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n'
         '9. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n\n'
         f'問題意圖分類：{intent}\n'
@@ -564,6 +615,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         prompt_parts.append(f'回答前套用 Lessons Learned：\n{lessons_guidance}\n\n')
     if teaching_plan_guidance:
         prompt_parts.append(f'回答前規劃（feature flag）：\n{teaching_plan_guidance}\n\n')
+    if openclaw_guidance:
+        prompt_parts.append(f'{openclaw_guidance}\n')
     if history:
         prompt_parts.append('對話歷史（僅供語氣連貫，不可覆蓋知識事實）：\n')
         for i, (user_msg, ai_msg) in enumerate(history[-state.max_history_length:], 1):
@@ -574,7 +627,7 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
     return ''.join(prompt_parts)
 
 
-def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
+def build_route_prompt(state, route_label, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance='', openclaw_guidance=''):
     route_note_map = {
         state.route_general: '本題屬於一般訓練或技巧型需求，請優先提供快速、實用、貼題的回答。',
         state.route_expert: '本題屬於深度分析或複雜邏輯需求，請優先提供嚴謹、條理清楚的回答。',
@@ -595,11 +648,12 @@ def build_route_prompt(state, route_label, user_input, knowledge_content, intent
         manual_hit,
         history,
         lessons_guidance=lessons_guidance,
-        teaching_plan_guidance=teaching_plan_guidance
+        teaching_plan_guidance=teaching_plan_guidance,
+        openclaw_guidance=openclaw_guidance
     )
 
 
-def build_provider_prompt(state, route_label, provider_name, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance=''):
+def build_provider_prompt(state, route_label, provider_name, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance='', openclaw_guidance=''):
     compact_history = history
     compact_lessons = lessons_guidance
     compact_knowledge = knowledge_content
@@ -619,7 +673,8 @@ def build_provider_prompt(state, route_label, provider_name, user_input, knowled
         manual_hit,
         history=compact_history,
         lessons_guidance=compact_lessons,
-        teaching_plan_guidance=teaching_plan_guidance
+        teaching_plan_guidance=teaching_plan_guidance,
+        openclaw_guidance=openclaw_guidance
     )
 
 
@@ -704,7 +759,23 @@ def ask_ai(
         teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
         tracker.end_step(success=True, result='context_built')
 
-        sidecar_guidance = ''
+        course_info_retrieved = False
+        if should_retrieve_official_course_schedule(config, user_input, intent):
+            tracker.start_step('official_course_schedule_retrieval')
+            try:
+                course_info = providers.query_course_info(user_input)
+                if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
+                    scoped_knowledge += f'\n\n--- 來自 台北市健言社官網課表 ---\n{course_info}'
+                    course_info_retrieved = True
+                    logger.info('Official course schedule retrieval added context intent=%s', intent)
+                tracker.end_step(success=True, result='course_schedule_retrieved' if course_info_retrieved else 'no_course_schedule_match')
+            except Exception as e:
+                tracker.add_error('course_schedule_retrieval', str(e))
+                logger.warning('Official course schedule retrieval failed: %s', e)
+                tracker.end_step(success=False, result='course_schedule_retrieval_failed')
+
+        openclaw_guidance = ''
+        sidecar_result = None
         if config.sidecar_enabled and task_type == 'command':
             tracker.start_step('sidecar_processing')
             openclaw_phase = config.openclaw_phase if config.openclaw_phase in {'observe', 'suggest', 'assist'} else 'suggest'
@@ -728,7 +799,11 @@ def ask_ai(
             decision, sidecar_result = active_dispatcher.dispatch(
                 user_input,
                 intent,
-                context={'route_intent': intent}
+                context={
+                    'route_intent': intent,
+                    'official_course_schedule_retrieved': course_info_retrieved,
+                    'grounding_context': scoped_knowledge[:4000],
+                }
             )
             state.last_sidecar_decision = {
                 'enabled': True,
@@ -740,10 +815,7 @@ def ask_ai(
                 'phase': openclaw_phase,
             }
             logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
-            sidecar_guidance = format_sidecar_guidance(sidecar_result)
-            if sidecar_result and sidecar_result.requires_approval:
-                tracker.end_step(success=True, result='sidecar_approval_required')
-                return sidecar_guidance.strip()
+            openclaw_guidance = build_openclaw_prompt_guidance(sidecar_result)
             tracker.end_step(success=True, result='sidecar_processed')
 
         # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
@@ -756,7 +828,7 @@ def ask_ai(
         if config.official_site_retrieval_enabled:
             tracker.start_step('official_site_retrieval')
             try:
-                course_info = providers.query_course_info(user_input)
+                course_info = None if course_info_retrieved else providers.query_course_info(user_input)
                 if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
                     scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
 
@@ -790,6 +862,10 @@ def ask_ai(
         provider_chain = get_route_provider_chain(state, route_label, providers)
         logger.info('Router selected route=%s reason=%s intent=%s providers=%s', route_label, route_reason, intent, provider_chain)
         tracker.end_step(success=True, result={'route': route_label, 'providers': provider_chain})
+        if not provider_chain and sidecar_result:
+            guidance = format_sidecar_guidance(sidecar_result).strip()
+            if guidance:
+                return guidance
 
         # 改進的 retry 邏輯：exponential backoff，最多 3 次，整條鏈失敗才重試
         max_attempts = 3
@@ -815,7 +891,8 @@ def ask_ai(
                     manual_hit,
                     history=history,
                     lessons_guidance=lessons_guidance,
-                    teaching_plan_guidance=teaching_plan_guidance
+                    teaching_plan_guidance=teaching_plan_guidance,
+                    openclaw_guidance=openclaw_guidance
                 )
 
                 result = None
@@ -846,8 +923,6 @@ def ask_ai(
                     tracker.end_step(success=True, result=f'success_with_{provider_name}')
                     attempt_success = True
                     tracker.end_step(success=True, result=f'attempt_{attempt + 1}_success')
-                    if sidecar_guidance:
-                        return f"{result}\n\n{sidecar_guidance}"
                     return result
 
                 tracker.end_step(success=False, result=f'{provider_name}_failed')

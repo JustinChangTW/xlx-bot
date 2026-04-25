@@ -541,6 +541,13 @@ class ProviderService:
             return None
 
         if bucket == 'this_week':
+            week_start = today - datetime.timedelta(days=today.weekday())
+            week_end = week_start + datetime.timedelta(days=6)
+            for row in rows:
+                row_date = row.get('resolved_date')
+                if row_date and week_start <= row_date <= week_end and row_date.weekday() == 3:
+                    return row
+
             target_date = self._next_weekday(today - datetime.timedelta(days=1), 3)
             for row in rows:
                 if row.get('resolved_date') == target_date:

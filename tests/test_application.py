@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 from xlxbot.application import BotApplication
 from xlxbot.config import AppConfig
@@ -42,8 +43,15 @@ class ApplicationTestCase(unittest.TestCase):
             app.app = mock_app_instance
             app.logger = self.logger  # Set logger since __init__ is mocked
             app.state = MagicMock()  # Set state since __init__ is mocked
+            app.run_startup_checks = MagicMock()
+            app.config = SimpleNamespace(
+                flask_host='0.0.0.0',
+                flask_port=8080,
+                line_integration_enabled=False,
+                line_webhook_auto_update=False,
+            )
             app.run()
-            mock_app_instance.run.assert_called_once_with(host='0.0.0.0', port=8080, debug=False)
+            mock_app_instance.run.assert_called_once_with(host='0.0.0.0', port=8080)
 
 
 if __name__ == '__main__':
