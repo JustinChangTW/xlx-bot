@@ -196,7 +196,15 @@
 - `SIDECAR_TIMEOUT_SECONDS` （可選，預設 `8`）
 - `OPENCLAW_BASE_URL` （可選，當 `SIDECAR_MODE=openclaw` 時必填）
 - `OPENCLAW_ENDPOINT_PATH` （可選，預設 `/v1/sidecar/dispatch`）
+- `OPENCLAW_HEALTH_PATH` （可選，預設 `/v1/openclaw/health`，本機 OpenClaw gateway 健康檢查）
 - `OPENCLAW_API_KEY` （可選，OpenClaw gateway bearer token）
+- `OPENCLAW_PHASE` （可選，預設 `suggest`，可選 `observe` / `suggest` / `assist`）
+- `OPENCLAW_MAX_OUTPUTS` （可選，預設 `5`，限制單次查核回傳片段數）
+- `OPENCLAW_CONFIDENCE_OK` （可選，預設 `0.84`，查到官方資料時的信心分數）
+- `OPENCLAW_CONFIDENCE_DEGRADED` （可選，預設 `0.2`，查核不足時的信心分數）
+- `OPENCLAW_AUDIT_ENABLED` （可選，預設 `true`，產生 OpenClaw audit ref）
+- `OPENCLAW_LEARNING_ENABLED` （可選，預設 `true`，允許查核結果進 pending review）
+- `OPENCLAW_OFFICIAL_SOURCES` （可選，逗號分隔的核可官方來源清單）
 - `AGENT_PATH_ENABLED` （可選，預設 `false`，啟用 agent path 實驗骨架）
 - `TEACHING_PLANNER_ENABLED` （可選，預設 `true`，啟用回答前教學規劃提示）
 - `OFFICIAL_SITE_RETRIEVAL_ENABLED` （可選，建議 `true`，允許透過 OpenClaw 查詢已核可官方來源補充回答）
@@ -226,6 +234,17 @@ NGROK_API_URL=http://127.0.0.1:4040/api/tunnels
 WEBHOOK_SYNC_TOKEN=請換成你自己的安全字串
 SIDECAR_ENABLED=true
 SIDECAR_MODE=openclaw
+SIDECAR_TIMEOUT_SECONDS=8
+OPENCLAW_BASE_URL=http://127.0.0.1:8080
+OPENCLAW_ENDPOINT_PATH=/v1/sidecar/dispatch
+OPENCLAW_HEALTH_PATH=/v1/openclaw/health
+OPENCLAW_PHASE=suggest
+OPENCLAW_MAX_OUTPUTS=5
+OPENCLAW_CONFIDENCE_OK=0.84
+OPENCLAW_CONFIDENCE_DEGRADED=0.2
+OPENCLAW_AUDIT_ENABLED=true
+OPENCLAW_LEARNING_ENABLED=true
+OPENCLAW_OFFICIAL_SOURCES=https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/user/1974toastmaster,https://www.flickr.com/photos/133676498@N06/albums/
 OFFICIAL_SITE_RETRIEVAL_ENABLED=true
 ```
 > 注意：不要把 `.env` 公開到版本控制系統中。

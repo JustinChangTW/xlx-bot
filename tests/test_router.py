@@ -13,6 +13,7 @@ from xlxbot.router import (
     should_retrieve_official_course_schedule,
 )
 from xlxbot.sidecar.schemas import SidecarResult
+from xlxbot.tool_registry import load_tool_registry
 
 
 class RouterTestCase(unittest.TestCase):
@@ -70,6 +71,17 @@ class RouterTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response, '')
+
+    def test_sidecar_tool_requires_openclaw_base_url(self):
+        registry = load_tool_registry()
+        tool = registry.get('sidecar_dispatch')
+        config = MagicMock()
+        config.sidecar_enabled = True
+        config.openclaw_base_url = ''
+
+        missing = registry.get_missing_env_constraints(tool, config)
+
+        self.assertIn('OPENCLAW_BASE_URL', missing)
 
     def test_openclaw_guidance_directs_reply_without_becoming_fact_source(self):
         guidance = build_openclaw_prompt_guidance(

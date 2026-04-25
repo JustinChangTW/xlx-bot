@@ -80,8 +80,15 @@ class AppConfig:
     sidecar_timeout_seconds: int
     openclaw_base_url: str
     openclaw_endpoint_path: str
+    openclaw_health_path: str
     openclaw_api_key: str
     openclaw_phase: str
+    openclaw_max_outputs: int
+    openclaw_confidence_ok: float
+    openclaw_confidence_degraded: float
+    openclaw_audit_enabled: bool
+    openclaw_learning_enabled: bool
+    openclaw_official_sources: list[str]
     agent_path_enabled: bool
     teaching_planner_enabled: bool
     official_site_retrieval_enabled: bool
@@ -148,8 +155,22 @@ class AppConfig:
             sidecar_mode=(os.getenv('SIDECAR_MODE', '').strip().lower() or 'openclaw') if os.getenv('OPENCLAW_BASE_URL', '').strip() else (os.getenv('SIDECAR_MODE', 'mock').strip() or 'mock'),
             sidecar_timeout_seconds=int(os.getenv('SIDECAR_TIMEOUT_SECONDS', '8')),
             openclaw_endpoint_path=os.getenv('OPENCLAW_ENDPOINT_PATH', '/v1/sidecar/dispatch').strip() or '/v1/sidecar/dispatch',
+            openclaw_health_path=os.getenv('OPENCLAW_HEALTH_PATH', '/v1/openclaw/health').strip() or '/v1/openclaw/health',
             openclaw_api_key=os.getenv('OPENCLAW_API_KEY', '').strip(),
             openclaw_phase=os.getenv('OPENCLAW_PHASE', 'suggest').strip().lower() or 'suggest',
+            openclaw_max_outputs=max(1, int(os.getenv('OPENCLAW_MAX_OUTPUTS', '5'))),
+            openclaw_confidence_ok=float(os.getenv('OPENCLAW_CONFIDENCE_OK', '0.84')),
+            openclaw_confidence_degraded=float(os.getenv('OPENCLAW_CONFIDENCE_DEGRADED', '0.2')),
+            openclaw_audit_enabled=os.getenv('OPENCLAW_AUDIT_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
+            openclaw_learning_enabled=os.getenv('OPENCLAW_LEARNING_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
+            openclaw_official_sources=[
+                item.strip()
+                for item in os.getenv(
+                    'OPENCLAW_OFFICIAL_SOURCES',
+                    'https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/user/1974toastmaster,https://www.flickr.com/photos/133676498@N06/albums/'
+                ).split(',')
+                if item.strip()
+            ],
             agent_path_enabled=os.getenv('AGENT_PATH_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
             teaching_planner_enabled=os.getenv('TEACHING_PLANNER_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
             official_site_retrieval_enabled=os.getenv('OFFICIAL_SITE_RETRIEVAL_ENABLED', 'false').lower() in ('1', 'true', 'yes'),

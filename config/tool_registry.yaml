@@ -41,6 +41,7 @@ tools:
     risk: medium
     env_constraints:
       - SIDECAR_ENABLED
+      - OPENCLAW_BASE_URL
   - name: formal_knowledge_write
     capability: write_or_update_formal_knowledge_files
     risk: high

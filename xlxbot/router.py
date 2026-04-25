@@ -873,6 +873,7 @@ def ask_ai(
             else:
                 active_dispatcher = dispatcher or SidecarDispatcher(
                     logger,
+                    config=config,
                     mode=config.sidecar_mode,
                     timeout_seconds=config.sidecar_timeout_seconds,
                 )

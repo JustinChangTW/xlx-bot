@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+from flask import Flask
 from xlxbot.application import BotApplication
 from xlxbot.config import AppConfig
 from xlxbot.logging_setup import setup_logging
@@ -108,6 +109,47 @@ class ApplicationTestCase(unittest.TestCase):
         self.assertIn('https://www.flickr.com/photos/133676498@N06/albums/', photo_targets)
         self.assertIn('https://www.youtube.com/user/1974toastmaster', video_targets)
         self.assertIn('https://www.instagram.com/taipeitoastmasters/', announcement_targets)
+
+    def test_local_openclaw_gateway_health_exposes_runtime_parameters(self):
+        app = BotApplication.__new__(BotApplication)
+        app.app = Flask(__name__)
+        app.config = SimpleNamespace(
+            openclaw_phase='suggest',
+            openclaw_endpoint_path='/v1/sidecar/dispatch',
+            openclaw_health_path='/v1/openclaw/health',
+            sidecar_timeout_seconds=8,
+            openclaw_max_outputs=3,
+            openclaw_confidence_ok=0.9,
+            openclaw_confidence_degraded=0.1,
+            openclaw_audit_enabled=True,
+            openclaw_learning_enabled=True,
+            openclaw_official_sources=['https://tmc1974.com/'],
+        )
+        app.sidecar_dispatcher = SimpleNamespace(mode='openclaw', is_ready=lambda: (True, []))
+        app._register_routes()
+
+        response = app.app.test_client().get('/v1/openclaw/health')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['gateway'], 'local-openclaw')
+        self.assertEqual(response.json['mode'], 'openclaw')
+        self.assertEqual(response.json['max_outputs'], 3)
+        self.assertIn('https://tmc1974.com/', response.json['official_sources'])
+
+    def test_local_openclaw_lookup_respects_max_outputs_parameter(self):
+        app = BotApplication.__new__(BotApplication)
+        app.config = SimpleNamespace(openclaw_max_outputs=1)
+        app.logger = self.logger
+        app.providers = SimpleNamespace(
+            query_course_info=lambda user_input: 'course',
+            query_latest_news=lambda user_input: 'news',
+            query_official_site_map=lambda user_input, intent: 'site',
+        )
+
+        outputs = app._build_local_openclaw_outputs('最新課程', 'lookup', 'COURSE_QUERY')
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIn('官方課表/課程查核', outputs[0])
 
 
 if __name__ == '__main__':

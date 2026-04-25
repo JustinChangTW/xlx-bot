@@ -34,6 +34,25 @@ class SidecarTestCase(unittest.TestCase):
         gateway = build_sidecar_gateway(config, self.logger)
         self.assertIsInstance(gateway, OpenClawGateway)
 
+    def test_dispatcher_uses_openclaw_gateway_when_configured(self):
+        config = SimpleNamespace(
+            sidecar_enabled=True,
+            sidecar_mode='openclaw',
+            sidecar_timeout_seconds=5,
+            openclaw_base_url='https://openclaw.example',
+            openclaw_endpoint_path='/dispatch',
+            openclaw_api_key='',
+            openclaw_phase='suggest',
+        )
+
+        dispatcher = SidecarDispatcher(self.logger, config=config)
+
+        self.assertEqual(dispatcher.mode, 'openclaw')
+        self.assertIsInstance(dispatcher.gateway, OpenClawGateway)
+        ready, missing = dispatcher.is_ready()
+        self.assertTrue(ready)
+        self.assertEqual(missing, [])
+
     def test_build_sidecar_gateway_unknown_mode_fallbacks_to_mock(self):
         config = SimpleNamespace(sidecar_mode='unknown', sidecar_timeout_seconds=5)
         gateway = build_sidecar_gateway(config, self.logger)

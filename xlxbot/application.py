@@ -418,13 +418,34 @@ class BotApplication:
             return jsonify({
                 'status': status,
                 'task_type': task_type,
-                'confidence': 0.84 if outputs else 0.2,
+                'confidence': getattr(self.config, 'openclaw_confidence_ok', 0.84) if outputs else getattr(self.config, 'openclaw_confidence_degraded', 0.2),
                 'outputs': outputs,
                 'risk_level': 'low' if is_lookup else 'medium',
                 'requires_approval': False if is_lookup else True,
-                'audit_ref': trace_id or f'local-openclaw-{int(time.time())}',
+                'audit_ref': self._build_openclaw_audit_ref(trace_id),
                 'error': '' if outputs else 'no_official_source_result',
             })
+
+        @self.app.route('/v1/openclaw/health', methods=['GET'])
+        def openclaw_health_check():
+            sidecar_ready, sidecar_missing = self.sidecar_dispatcher.is_ready()
+            return jsonify({
+                'status': 'ok' if sidecar_ready else 'degraded',
+                'gateway': 'local-openclaw',
+                'mode': self.sidecar_dispatcher.mode,
+                'phase': self.config.openclaw_phase,
+                'dispatch_path': self.config.openclaw_endpoint_path,
+                'health_path': getattr(self.config, 'openclaw_health_path', '/v1/openclaw/health'),
+                'timeout_seconds': self.config.sidecar_timeout_seconds,
+                'max_outputs': getattr(self.config, 'openclaw_max_outputs', 5),
+                'confidence_ok': getattr(self.config, 'openclaw_confidence_ok', 0.84),
+                'confidence_degraded': getattr(self.config, 'openclaw_confidence_degraded', 0.2),
+                'audit_enabled': getattr(self.config, 'openclaw_audit_enabled', True),
+                'learning_enabled': getattr(self.config, 'openclaw_learning_enabled', True),
+                'official_sources': getattr(self.config, 'openclaw_official_sources', []),
+                'ready': sidecar_ready,
+                'missing': sidecar_missing,
+            }), 200 if sidecar_ready else 503
 
         @self.app.route('/callback', methods=['POST'])
         def callback():
@@ -466,7 +487,7 @@ class BotApplication:
                         '已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；'
                         '請回到保守回答，明確說明本地與官方查核都不足。'
                     )
-                return outputs[:5]
+                return outputs[:getattr(self.config, 'openclaw_max_outputs', 5)]
 
             outputs.extend([
                 '先拆解使用者真正要解決的問題、交付物與限制。',
@@ -477,6 +498,11 @@ class BotApplication:
         except Exception as exc:
             self.logger.warning('Local OpenClaw dispatch failed: %s', exc)
             return []
+
+    def _build_openclaw_audit_ref(self, trace_id):
+        if not getattr(self.config, 'openclaw_audit_enabled', True):
+            return trace_id or 'local-openclaw-audit-disabled'
+        return trace_id or f'local-openclaw-{int(time.time())}'
 
     def _register_handlers(self):
         @self.handler.add(MessageEvent, message=TextMessageContent)
