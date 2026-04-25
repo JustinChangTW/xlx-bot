@@ -23,14 +23,20 @@ class MockGateway:
                 '隔離影響範圍，優先檢查最近變更。',
                 '提出修復草案與回歸測試清單。',
             ]
+        elif task_type in {'lookup', 'analyze'}:
+            outputs = [
+                '先比對本地知識缺口，確認問題是在問現況、名單、課程、公告或規則。',
+                '再查核已核可官方來源，優先使用官網首頁、課表、當期幹部、理事會、公告、課程分類頁、Instagram、YouTube 與 Flickr 相簿。',
+                '回答時保留來源；若查不到可信資料，明確說明本地與官方查核都不足。',
+            ]
 
         return SidecarResult(
             status='ok',
             task_type=task_type,
             confidence=0.66,
             outputs=outputs,
-            risk_level='medium',
-            requires_approval=True,
+            risk_level='low' if task_type in {'lookup', 'analyze'} else 'medium',
+            requires_approval=False if task_type in {'lookup', 'analyze'} else True,
             audit_ref=f'mock-{digest}',
         )
 

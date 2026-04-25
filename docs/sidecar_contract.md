@@ -1,13 +1,13 @@
 # OpenClaw Sidecar Contract（Phase 0/1）
 
-本文件定義 xlx-bot 與 sidecar 的最小契約，目標是「不破壞主流程、可回退、可審計」。
+本文件定義 xlx-bot 與 sidecar 的最小契約，目標是「本地知識優先、OpenClaw 查核補足、不破壞主流程、可回退、可審計」。
 
 ## Request Schema
 
 ```json
 {
   "user_input": "string",
-  "task_type": "plan|suggest|debug|project",
+  "task_type": "lookup|analyze|plan|suggest|debug|project",
   "intent": "string",
   "trace_id": "string",
   "context": {
@@ -21,7 +21,7 @@
 ```json
 {
   "status": "ok|degraded|failed",
-  "task_type": "plan|suggest|debug|project",
+  "task_type": "lookup|analyze|plan|suggest|debug|project",
   "confidence": 0.66,
   "outputs": ["string"],
   "risk_level": "low|medium|high",
@@ -39,9 +39,9 @@
 
 ## Safety Constraints
 
-- Phase 1 僅允許 `suggest/plan/debug/project` 草案輸出
+- OpenClaw 可用於低風險官方來源查核與問題分析，以及 `lookup/analyze/suggest/plan/debug/project` 草案輸出
 - 不允許自動 execute
-- 高風險動作需 `requires_approval=true`
+- 高風險動作與正式 knowledge 寫入需 `requires_approval=true`
 
 
 ## Runtime Config (Phase 2)

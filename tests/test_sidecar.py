@@ -39,12 +39,17 @@ class SidecarTestCase(unittest.TestCase):
         gateway = build_sidecar_gateway(config, self.logger)
         self.assertIsInstance(gateway, MockGateway)
 
-    def test_dispatch_fact_query_does_not_call_sidecar(self):
+    def test_dispatch_fact_query_can_call_sidecar_for_official_lookup(self):
         dispatcher = SidecarDispatcher(self.logger, config=SimpleNamespace(sidecar_mode='mock'))
-        decision, result = dispatcher.dispatch('請給我一個計畫', 'FACT_QUERY')
-        self.assertFalse(decision.should_call_sidecar)
-        self.assertEqual(decision.reason, 'fact-first')
-        self.assertIsNone(result)
+        decision, result = dispatcher.dispatch(
+            '現在社長是誰？',
+            'FACT_QUERY',
+            context={'needs_official_lookup': True},
+        )
+        self.assertTrue(decision.should_call_sidecar)
+        self.assertEqual(decision.reason, 'official-lookup')
+        self.assertEqual(decision.task_type, 'lookup')
+        self.assertIsNotNone(result)
 
     def test_dispatch_task_query_calls_gateway(self):
         expected = SidecarResult(

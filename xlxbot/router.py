@@ -486,6 +486,63 @@ def has_grounded_facts(knowledge_content):
     return False
 
 
+def has_missing_markers(knowledge_content):
+    lowered = (knowledge_content or '').lower()
+    return any(marker.lower() in lowered for marker in MISSING_INFO_MARKERS)
+
+
+def is_current_sensitive_query(user_input, intent):
+    text = (user_input or '').lower()
+    current_keywords = COURSE_TIME_KEYWORDS + [
+        '目前',
+        '現在',
+        '現任',
+        '最新',
+        '最近',
+        '本期',
+        '這期',
+        '當期',
+        '本週',
+        '本周',
+        '下一週',
+        '下一周',
+    ]
+    if any(keyword.lower() in text for keyword in current_keywords):
+        return True
+    return intent in {INTENT_MEMBER, INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_COURSE, INTENT_PROMOTION}
+
+
+def should_use_openclaw_lookup(config, user_input, intent, knowledge_content, manual_exists=True, manual_hit=True):
+    if not getattr(config, 'sidecar_enabled', False):
+        return False
+    if getattr(config, 'openclaw_phase', 'suggest') == 'observe':
+        return False
+    if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
+        return True
+    if is_current_sensitive_query(user_input, intent):
+        return True
+    if not has_grounded_facts(knowledge_content):
+        return True
+    return has_missing_markers(knowledge_content)
+
+
+def openclaw_outputs_have_grounding(result):
+    if not result or not result.outputs:
+        return False
+    if result.task_type not in {'lookup', 'analyze'}:
+        return False
+    joined = '\n'.join(str(item) for item in result.outputs)
+    source_signals = ['http://', 'https://', '來源', '根據', '官網', '課表', '當期幹部', '理事會', '公告']
+    if not any(signal in joined for signal in source_signals):
+        return False
+    generic_starters = ('先', '再', '回答時', '列出', '提出')
+    meaningful_lines = [
+        line.strip() for line in joined.splitlines()
+        if line.strip() and not line.strip().startswith(generic_starters)
+    ]
+    return bool(meaningful_lines)
+
+
 def compact_knowledge_content(knowledge_content, max_sections=4, max_chars=3200):
     if not knowledge_content:
         return knowledge_content
@@ -568,17 +625,18 @@ def build_openclaw_prompt_guidance(sidecar_result):
         return ''
 
     return (
-        'OpenClaw 回覆指揮（只作為回答策略，不是社團事實來源）：\n'
+        'OpenClaw 回覆指揮：\n'
         f'- 任務類型：{sidecar_result.task_type}\n'
         f'- 風險等級：{sidecar_result.risk_level}\n'
         f'- 需要人工核准：{"是" if sidecar_result.requires_approval else "否"}\n'
         '請依序完成：\n'
-        '1. 理解問題：先對焦使用者真正要的交付物。\n'
-        '2. 分析問題：只用知識內容確認可用事實，缺資料要明講。\n'
-        '3. 解決問題：給出可直接貼到 LINE 的繁體中文回覆。\n'
-        'OpenClaw 建議：\n'
+        '1. 像成熟的台北市健言社前輩與老師一樣，先拆解使用者真正要解決的問題。\n'
+        '2. 先用本地知識確認事實；本地不足時，用 OpenClaw 查核結果補足。\n'
+        '3. 若 OpenClaw 輸出包含明確來源，可作為本次回答依據；若只是建議草稿，僅可作為分析策略。\n'
+        '4. 回答要短答優先、條理清楚、可直接貼到 LINE，並提醒仍需人工審核的新知識不可視為正式寫入。\n'
+        'OpenClaw 輸出：\n'
         f'{outputs}\n'
-        '限制：不可宣稱已自動執行、已更新知識庫、已部署，或把 OpenClaw 草稿當成已核准事實。\n'
+        '限制：不可宣稱已部署、已正式更新 knowledge，或把無來源草稿當成已核准事實。\n'
     )
 
 
@@ -595,17 +653,18 @@ def should_retrieve_official_course_schedule(config, user_input, intent):
 def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance='', openclaw_guidance=''):
     # 統一在這裡組 prompt，把知識庫、規則、歷史與本次問題串起來。
     prompt_parts = [
-        '你現在是「健言小龍蝦」，你的任務是根據提供的知識庫回答。\n'
+        '你現在是「健言小龍蝦」，也是成熟、資深、可靠的台北市健言社前輩與老師。\n'
+        '你的任務是先拆解問題，再根據本地知識與 OpenClaw 官方查核結果回答。\n'
         '【回答硬性規則】\n'
-        '1. 只能使用「知識內容」中已明確出現的資訊。\n'
-        '2. 若知識內容沒有明確答案，必須直接回答「目前知識庫沒有這項資訊」或「目前提供的社團資料不足以確認」。\n'
+        '1. 優先使用「知識內容」中已明確出現的資訊；若有 OpenClaw 官方查核結果且含來源，也可用於本次回答。\n'
+        '2. 若本地知識與 OpenClaw 查核都沒有明確答案，必須回答「目前本地知識庫與可查核官方來源都沒有這項資訊」或「目前提供的社團資料不足以確認」。\n'
         '3. 禁止自行補人物、時間、活動、職位、經歷；禁止把推測當成事實。\n'
         '4. 先回答使用者真正問的核心問題，再補充最多 2 點相關資訊。\n'
-        '5. 若問題含有「目前、最近、現任、最新」等時間語意，優先使用知識中的『最新公告/近期活動/目前資訊』段落。\n'
-        '6. 回答要貼題、簡潔、可核對；避免空泛長篇。\n'
-        '7. 如知識無則請上網查詢；不要只賴提供的知識內容。\n'
-        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 找不到答案，直接回覆資料不足。\n'
-        '9. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n\n'
+        '5. 若問題含有「目前、最近、現任、最新、本週、下週」等時間語意，優先使用本地現況資料；不足時使用 OpenClaw 查核結果。\n'
+        '6. 回答要像前輩老師：先幫對方釐清問題，再給穩健答案、提醒風險與下一步；不要空泛長篇。\n'
+        '7. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 不足，改用 OpenClaw 查核結果，仍不足才回覆資料不足。\n'
+        '8. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n'
+        '9. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
@@ -776,10 +835,19 @@ def ask_ai(
 
         openclaw_guidance = ''
         sidecar_result = None
-        if config.sidecar_enabled and task_type == 'command':
+        needs_openclaw_lookup = should_use_openclaw_lookup(
+            config,
+            user_input,
+            intent,
+            scoped_knowledge,
+            manual_exists=manual_exists,
+            manual_hit=manual_hit,
+        )
+        should_dispatch_sidecar = config.sidecar_enabled and (task_type == 'command' or needs_openclaw_lookup)
+        if should_dispatch_sidecar:
             tracker.start_step('sidecar_processing')
             openclaw_phase = config.openclaw_phase if config.openclaw_phase in {'observe', 'suggest', 'assist'} else 'suggest'
-            if openclaw_phase == 'observe':
+            if openclaw_phase == 'observe' and task_type == 'command':
                 state.last_sidecar_decision = {
                     'enabled': True,
                     'should_call': False,
@@ -791,35 +859,73 @@ def ask_ai(
                 }
                 tracker.end_step(success=True, result='sidecar_observe_phase')
                 return '這個請求需要 pending review。OpenClaw 目前位於 observe phase，只記錄與審核，不提供自動建議。'
-            active_dispatcher = dispatcher or SidecarDispatcher(
-                logger,
-                mode=config.sidecar_mode,
-                timeout_seconds=config.sidecar_timeout_seconds,
-            )
-            decision, sidecar_result = active_dispatcher.dispatch(
-                user_input,
-                intent,
-                context={
-                    'route_intent': intent,
-                    'official_course_schedule_retrieved': course_info_retrieved,
-                    'grounding_context': scoped_knowledge[:4000],
+            if openclaw_phase == 'observe':
+                state.last_sidecar_decision = {
+                    'enabled': True,
+                    'should_call': False,
+                    'reason': 'phase-observe',
+                    'task_type': 'lookup',
+                    'requires_approval': False,
+                    'fallback': 'local_only',
+                    'phase': openclaw_phase,
                 }
-            )
-            state.last_sidecar_decision = {
-                'enabled': True,
-                'should_call': decision.should_call_sidecar,
-                'reason': decision.reason,
-                'task_type': decision.task_type,
-                'requires_approval': bool(sidecar_result.requires_approval) if sidecar_result else False,
-                'fallback': decision.reason if not decision.should_call_sidecar else 'none',
-                'phase': openclaw_phase,
-            }
-            logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
-            openclaw_guidance = build_openclaw_prompt_guidance(sidecar_result)
-            tracker.end_step(success=True, result='sidecar_processed')
+                tracker.end_step(success=True, result='sidecar_observe_phase_lookup_skipped')
+            else:
+                active_dispatcher = dispatcher or SidecarDispatcher(
+                    logger,
+                    mode=config.sidecar_mode,
+                    timeout_seconds=config.sidecar_timeout_seconds,
+                )
+                decision, sidecar_result = active_dispatcher.dispatch(
+                    user_input,
+                    intent,
+                    context={
+                        'route_intent': intent,
+                        'official_course_schedule_retrieved': course_info_retrieved,
+                        'grounding_context': scoped_knowledge[:4000],
+                        'needs_official_lookup': needs_openclaw_lookup,
+                        'approved_sources': [
+                            'https://tmc1974.com/',
+                            'https://tmc1974.com/schedule/',
+                            'https://tmc1974.com/leaders/',
+                            'https://tmc1974.com/board-members/',
+                            'https://www.instagram.com/taipeitoastmasters/',
+                            'https://www.youtube.com/user/1974toastmaster',
+                            'https://www.flickr.com/photos/133676498@N06/albums/',
+                            'official announcements and course categories',
+                        ],
+                        'problem_decomposition': [
+                            '判斷使用者是在問事實、現況、宣傳、教學還是問題分析。',
+                            '列出本地知識已知、未知與需要官方查核的欄位。',
+                            '用前輩老師口吻給短答、依據、風險提醒與下一步。',
+                        ],
+                    }
+                )
+                state.last_sidecar_decision = {
+                    'enabled': True,
+                    'should_call': decision.should_call_sidecar,
+                    'reason': decision.reason,
+                    'task_type': decision.task_type,
+                    'requires_approval': bool(sidecar_result.requires_approval) if sidecar_result else False,
+                    'fallback': decision.reason if not decision.should_call_sidecar else 'none',
+                    'phase': openclaw_phase,
+                    'status': sidecar_result.status if sidecar_result else None,
+                    'risk_level': sidecar_result.risk_level if sidecar_result else None,
+                    'audit_ref': sidecar_result.audit_ref if sidecar_result else None,
+                    'outputs': sidecar_result.outputs[:5] if sidecar_result else [],
+                    'learnable': bool(sidecar_result and sidecar_result.task_type in {'lookup', 'analyze'} and sidecar_result.outputs),
+                }
+                logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+                openclaw_guidance = build_openclaw_prompt_guidance(sidecar_result)
+                if openclaw_outputs_have_grounding(sidecar_result):
+                    scoped_knowledge += (
+                        '\n\n--- 來自 OpenClaw 官方查核（pending review） ---\n'
+                        + '\n'.join(f'- {item}' for item in sidecar_result.outputs)
+                    )
+                tracker.end_step(success=True, result='sidecar_processed')
 
-        # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
-        if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
+        # 規則/課程/組織類問題若 club_manual 無命中，需先嘗試 OpenClaw；仍無依據才保守拒答。
+        if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit) and not openclaw_outputs_have_grounding(sidecar_result):
             tracker.end_step(success=True, result='insufficient_manual_knowledge')
             return build_insufficient_knowledge_response(
                 teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'

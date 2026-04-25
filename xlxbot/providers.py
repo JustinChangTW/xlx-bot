@@ -350,12 +350,16 @@ class ProviderService:
             add('https://tmc1974.com/lecturer/')
         if any(keyword in text for keyword in ['辯論', 'debate']):
             add('https://tmc1974.com/debate/')
-        if any(keyword in text for keyword in ['活動', '會外會', 'event', 'events']):
+        if any(keyword in text for keyword in ['活動', '會外會', 'event', 'events', '文宣', '宣傳', '公告']):
             add('https://tmc1974.com/category/events/')
         if any(keyword in text for keyword in ['照片', '相簿', 'photo', 'photos']):
             add('https://tmc1974.com/category/photos/')
+            add('https://www.flickr.com/photos/133676498@N06/albums/')
         if any(keyword in text for keyword in ['影片', '影音', 'video', 'videos']):
             add('https://tmc1974.com/category/videos/')
+            add('https://www.youtube.com/user/1974toastmaster')
+        if any(keyword in text for keyword in ['instagram', 'ig', '社群', '貼文', '文宣', '公告', '宣傳']):
+            add('https://www.instagram.com/taipeitoastmasters/')
 
         if intent == 'MEMBER_QUERY':
             add('https://tmc1974.com/rules/')
@@ -369,8 +373,11 @@ class ProviderService:
             add('https://tmc1974.com/category/events/')
             add('https://tmc1974.com/category/photos/')
             add('https://tmc1974.com/category/videos/')
+            add('https://www.instagram.com/taipeitoastmasters/')
+            add('https://www.flickr.com/photos/133676498@N06/albums/')
         elif intent == 'ANNOUNCEMENT_QUERY':
             add('https://tmc1974.com/category/events/')
+            add('https://www.instagram.com/taipeitoastmasters/')
         elif intent == 'COURSE_QUERY':
             add('https://tmc1974.com/lecturer/')
             add('https://tmc1974.com/debate/')
@@ -383,7 +390,7 @@ class ProviderService:
             add('https://tmc1974.com/leaders/')
             add('https://tmc1974.com/board-members/')
 
-        return targets[:4]
+        return targets[:6]
 
     def _clean_text_line(self, text):
         cleaned = re.sub(r'\s+', ' ', (text or '')).strip()

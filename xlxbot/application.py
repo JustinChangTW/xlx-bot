@@ -391,6 +391,41 @@ class BotApplication:
             desired_url = get_desired_webhook_url(self.config, self.state, self.logger)
             return jsonify({'updated': updated, 'webhook_url': desired_url})
 
+        @self.app.route('/v1/sidecar/dispatch', methods=['POST'])
+        def openclaw_sidecar_dispatch():
+            payload = request.get_json(silent=True) or {}
+            user_input = str(payload.get('user_input') or '')
+            task_type = str(payload.get('task_type') or 'lookup')
+            intent = str(payload.get('intent') or 'unknown')
+            trace_id = str(payload.get('trace_id') or '')
+
+            if not user_input.strip():
+                return jsonify({
+                    'status': 'failed',
+                    'task_type': task_type,
+                    'confidence': 0.0,
+                    'outputs': [],
+                    'risk_level': 'low',
+                    'requires_approval': False,
+                    'audit_ref': trace_id or 'local-openclaw',
+                    'error': 'empty_user_input',
+                }), 400
+
+            outputs = self._build_local_openclaw_outputs(user_input, task_type, intent)
+            is_lookup = task_type in {'lookup', 'analyze'}
+            status = 'ok' if outputs else 'degraded'
+
+            return jsonify({
+                'status': status,
+                'task_type': task_type,
+                'confidence': 0.84 if outputs else 0.2,
+                'outputs': outputs,
+                'risk_level': 'low' if is_lookup else 'medium',
+                'requires_approval': False if is_lookup else True,
+                'audit_ref': trace_id or f'local-openclaw-{int(time.time())}',
+                'error': '' if outputs else 'no_official_source_result',
+            })
+
         @self.app.route('/callback', methods=['POST'])
         def callback():
             if self.handler is None:
@@ -409,6 +444,39 @@ class BotApplication:
                 self.logger.exception('Failed to handle LINE request')
                 abort(500)
             return 'OK'
+
+    def _build_local_openclaw_outputs(self, user_input, task_type, intent):
+        outputs = []
+        try:
+            if task_type in {'lookup', 'analyze'}:
+                course_info = self.providers.query_course_info(user_input)
+                if course_info:
+                    outputs.append(f'官方課表/課程查核：\n{course_info}')
+
+                news_info = self.providers.query_latest_news(user_input)
+                if news_info:
+                    outputs.append(f'官方公告/文宣查核：\n{news_info}')
+
+                site_info = self.providers.query_official_site_map(user_input, intent)
+                if site_info:
+                    outputs.append(f'官方網站查核：\n{site_info}')
+
+                if not outputs:
+                    outputs.append(
+                        '已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；'
+                        '請回到保守回答，明確說明本地與官方查核都不足。'
+                    )
+                return outputs[:5]
+
+            outputs.extend([
+                '先拆解使用者真正要解決的問題、交付物與限制。',
+                '先用本地知識確認事實；若本地不足，改用 OpenClaw 官方查核結果補足。',
+                '用成熟台北市健言社前輩與老師的口吻，給短答、依據、風險提醒與下一步。',
+            ])
+            return outputs
+        except Exception as exc:
+            self.logger.warning('Local OpenClaw dispatch failed: %s', exc)
+            return []
 
     def _register_handlers(self):
         @self.handler.add(MessageEvent, message=TextMessageContent)
@@ -516,6 +584,36 @@ class BotApplication:
                             approval='required' if self.state.last_sidecar_decision.get('requires_approval') else 'not_required',
                             fallback=self.state.last_sidecar_decision.get('fallback', self.state.last_sidecar_decision.get('reason', 'none')),
                         )
+                        if self.state.last_sidecar_decision.get('learnable'):
+                            audit_ref = self.state.last_sidecar_decision.get('audit_ref') or 'unknown'
+                            for item in self.state.last_sidecar_decision.get('outputs', []):
+                                fact = str(item).strip()
+                                if not fact:
+                                    continue
+                                append_pending_knowledge(
+                                    self.config,
+                                    self.logger,
+                                    fact,
+                                    source=f'openclaw:{audit_ref}',
+                                    user_id=user_id,
+                                )
+                                append_learning_event(
+                                    self.config,
+                                    self.logger,
+                                    event_type='OPENCLAW_LEARNING_CAPTURED',
+                                    user_id=user_id,
+                                    user_input=user_text,
+                                    details={
+                                        'category': 'openclaw_pending_review',
+                                        'audit_ref': audit_ref,
+                                        'fact': fact[:200],
+                                    },
+                                    intent=self.state.last_sidecar_decision.get('task_type', 'unknown'),
+                                    action='capture_openclaw_lookup_result',
+                                    risk='low',
+                                    approval='not_required',
+                                    fallback='pending_review',
+                                )
 
                     learned_matches = parse_learned_tags(ai_response)
                     if learned_matches:

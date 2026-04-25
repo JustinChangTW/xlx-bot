@@ -118,8 +118,8 @@ def rebuild_lessons_and_troubleshooting(config, logger):
         '',
         '## 回答前必做',
         '- 優先回答使用者核心問題，避免離題。',
-        '- 若知識不足，直接回覆資料不足，不可補完推測。',
-        '- 涉及規則/課程/組織時先查 club_manual，查不到就明確拒答。',
+        '- 若本地知識不足，先透過 OpenClaw 查詢已核可官方來源；仍不足才回覆資料不足，不可補完推測。',
+        '- 涉及規則/課程/組織時先查 club_manual，查不到就透過 OpenClaw 查核官方來源；仍不足才明確拒答。',
         '',
         '## 最近高頻失敗提醒',
     ]
@@ -140,7 +140,7 @@ def rebuild_lessons_and_troubleshooting(config, logger):
         troubleshooting.extend([
             '',
             '## 建議',
-            '- 若同類錯誤連續發生，先檢查對應知識檔是否缺資料。',
+            '- 若同類錯誤連續發生，先檢查對應知識檔是否缺資料，並確認 OpenClaw 官方查核是否可用。',
             '- 將新資訊先記錄到 pending review，不直接併入正式 knowledge。',
         ])
     else:

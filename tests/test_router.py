@@ -84,10 +84,10 @@ class RouterTestCase(unittest.TestCase):
             )
         )
 
-        self.assertIn('理解問題', guidance)
-        self.assertIn('分析問題', guidance)
-        self.assertIn('解決問題', guidance)
-        self.assertIn('不是社團事實來源', guidance)
+        self.assertIn('拆解使用者真正要解決的問題', guidance)
+        self.assertIn('本地知識確認事實', guidance)
+        self.assertIn('OpenClaw 查核結果補足', guidance)
+        self.assertIn('若只是建議草稿，僅可作為分析策略', guidance)
 
     def test_request_tracker_allows_nested_step_transition(self):
         tracker = RequestStateTracker()

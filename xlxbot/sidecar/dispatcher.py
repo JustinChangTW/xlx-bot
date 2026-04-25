@@ -10,6 +10,8 @@ TASK_KEYWORDS = {
     'suggest': ['建議', '方案', '草稿', '怎麼做', '宣傳', '文宣', '社務布達', '作文宣', '寫文宣'],
     'debug': ['debug', '除錯', '修復', '錯誤', '故障'],
     'project': ['專案', '任務', '重構', '整合'],
+    'analyze': ['分析', '拆解', '判斷', '比對', '確認'],
+    'lookup': ['查詢', '查核', '官網', '來源', '最新', '現任', '本週', '本周', '下週', '下周', '課表', '幹部名單'],
 }
 
 FACT_FIRST_INTENTS = {
@@ -76,9 +78,12 @@ class SidecarDispatcher:
                 return task_type
         return ''
 
-    def decide(self, user_input: str, intent: str) -> DispatchDecision:
+    def decide(self, user_input: str, intent: str, context=None) -> DispatchDecision:
+        context = context or {}
         task_type = self._infer_task_type(user_input)
         text = (user_input or '').lower()
+        if not task_type and context.get('needs_official_lookup'):
+            task_type = 'lookup'
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
 
@@ -87,9 +92,8 @@ class SidecarDispatcher:
         if openclaw_phase == 'observe':
             return DispatchDecision(False, 'phase-observe', task_type)
 
-        # 事實型與公告查詢預設不觸發 sidecar。
-        if intent in FACT_FIRST_INTENTS:
-            return DispatchDecision(False, 'fact-first', task_type)
+        if intent in FACT_FIRST_INTENTS and task_type in {'lookup', 'analyze'}:
+            return DispatchDecision(True, 'official-lookup', task_type)
 
         if intent in {'RULE_QUERY', 'COURSE_QUERY', 'ORG_QUERY'}:
             project_like_keywords = ['重構', '整合', '專案', 'project', 'debug', '除錯', '錯誤', '故障']
@@ -100,7 +104,8 @@ class SidecarDispatcher:
         return DispatchDecision(True, 'task-query', task_type)
 
     def dispatch(self, user_input: str, intent: str, context=None) -> tuple[DispatchDecision, SidecarResult | None]:
-        decision = self.decide(user_input, intent)
+        context = context or {}
+        decision = self.decide(user_input, intent, context=context)
         if not decision.should_call_sidecar:
             return decision, None
 

@@ -19,6 +19,6 @@ def format_teaching_plan_for_prompt(plan: TeachingPlan, intent: str) -> str:
 def build_insufficient_knowledge_response(next_action: str) -> str:
     action = (next_action or '').strip() or '請提供可核對來源後再詢問。'
     return (
-        '目前知識庫沒有這項資訊，或目前提供的社團資料不足以確認。\n'
+        '目前本地知識庫與可查核官方來源都沒有這項資訊，或目前提供的社團資料不足以確認。\n'
         f'next_action：{action}'
     )
