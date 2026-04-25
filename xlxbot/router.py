@@ -1,5 +1,7 @@
 import re
 import time
+import threading
+from contextlib import contextmanager
 
 from .agent import classify_intent as classify_agent_intent
 from .agent import dispatch_task, run_action
@@ -70,6 +72,86 @@ ERROR_REPORT_KEYWORDS = ['錯誤', '壞掉', '故障', '失敗', 'exception', 't
 CORRECTION_KEYWORDS = ['你錯了', '你剛剛', '應該是', '更正', '修正', '請改成']
 
 
+class RequestStateTracker:
+    def __init__(self, request_id=None):
+        self.request_id = request_id or f"req_{int(time.time() * 1000)}"
+        self.start_time = time.time()
+        self.steps = []
+        self.errors = []
+        self.retries = []
+        self.current_step = None
+        self.lock = threading.Lock()
+
+    def start_step(self, step_name, details=None):
+        with self.lock:
+            if self.current_step:
+                self.end_step(success=True)
+            self.current_step = {
+                'name': step_name,
+                'start_time': time.time(),
+                'details': details or {},
+                'errors': []
+            }
+
+    def add_error(self, error_type, message, details=None):
+        with self.lock:
+            error = {
+                'type': error_type,
+                'message': str(message),
+                'timestamp': time.time(),
+                'details': details or {}
+            }
+            self.errors.append(error)
+            if self.current_step:
+                self.current_step['errors'].append(error)
+
+    def end_step(self, success=True, result=None):
+        with self.lock:
+            if self.current_step:
+                self.current_step.update({
+                    'end_time': time.time(),
+                    'duration': time.time() - self.current_step['start_time'],
+                    'success': success,
+                    'result': result
+                })
+                self.steps.append(self.current_step)
+                self.current_step = None
+
+    def record_retry(self, attempt, reason, backoff_seconds):
+        with self.lock:
+            self.retries.append({
+                'attempt': attempt,
+                'reason': reason,
+                'backoff_seconds': backoff_seconds,
+                'timestamp': time.time()
+            })
+
+    def get_summary(self):
+        with self.lock:
+            total_duration = time.time() - self.start_time
+            return {
+                'request_id': self.request_id,
+                'total_duration': total_duration,
+                'steps_count': len(self.steps),
+                'errors_count': len(self.errors),
+                'retries_count': len(self.retries),
+                'steps': self.steps,
+                'errors': self.errors,
+                'retries': self.retries
+            }
+
+
+@contextmanager
+def timeout_context(seconds):
+    """Context manager for timeout handling"""
+    timer = threading.Timer(seconds, lambda: (_ for _ in ()).throw(TimeoutError()))
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
 def classify_openclaw_task_type(user_input, intent):
     text = (user_input or '').strip().lower()
     if any(keyword.lower() in text for keyword in CORRECTION_KEYWORDS):
@@ -104,7 +186,7 @@ def select_controlled_tool(task_type, user_input):
     return 'knowledge_lookup', 'knowledge_lookup', 'low'
 
 
-def evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_gate, task_type, user_input):
+def evaluate_controlled_tool_use(state, config, tool_registry, policy_engine, approval_gate, task_type, user_input):
     tool_name, action, risk = select_controlled_tool(task_type, user_input)
     if not tool_registry or not policy_engine or not approval_gate:
         state.last_tool_decision = {
@@ -132,6 +214,23 @@ def evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_g
         }
         return state.last_tool_decision
 
+    missing_constraints = tool_registry.get_missing_env_constraints(tool_definition, config) if config and tool_registry else []
+    if missing_constraints:
+        requires_approval = task_type in {'command', 'docs_request'}
+        state.last_tool_decision = {
+            'task_type': task_type,
+            'tool_name': tool_definition.name,
+            'action': action,
+            'risk': tool_definition.risk or risk,
+            'allowed': True,
+            'requires_approval': requires_approval,
+            'fallback': 'pending_review' if requires_approval else 'tool_unavailable',
+            'reason': f'missing_env_constraints:{",".join(missing_constraints)}',
+            'missing_constraints': missing_constraints,
+            'env_ready': False,
+        }
+        return state.last_tool_decision
+
     policy_decision = policy_engine.evaluate(
         intent=task_type,
         action=action,
@@ -149,16 +248,25 @@ def evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_g
         'requires_approval': bool(approval_result.requires_approval) if approval_result else False,
         'fallback': approval_result.fallback if approval_result else 'none',
         'reason': approval_result.reason if approval_result else 'no_policy',
+        'missing_constraints': [],
+        'env_ready': True,
     }
     return state.last_tool_decision
 
 
 def build_controlled_action_response(task_type, tool_decision):
+    if tool_decision.get('missing_constraints'):
+        if task_type == 'command':
+            missing = ', '.join(tool_decision.get('missing_constraints', []))
+            return f'目前受控執行鏈尚未就緒，已改為 pending review。缺少條件：{missing}'
+        return '這個請求目前缺少必要設定，暫時無法進入受控流程。'
     if not tool_decision.get('allowed', True):
         if task_type == 'command':
             return '這類操作屬於高風險行為，目前系統禁止直接執行，例如改程式、部署或寫入正式知識庫。'
         return '這個請求目前不在允許的受控工具範圍內。'
     if tool_decision.get('requires_approval'):
+        if tool_decision.get('tool_name') == 'sidecar_dispatch':
+            return ''
         if task_type == 'docs_request':
             return '文件草稿需求已判定為 pending review。系統可以先提出草稿建議，但不會自動宣告文件已完成或自動套用正式變更。'
         return '這個請求需要 pending review。系統目前不會直接執行，而是保留為建議或待人工確認。'
@@ -528,154 +636,241 @@ def ask_ai(
     policy_engine=None,
     approval_gate=None,
 ):
-    state.last_agent_decision = None
-    state.last_sidecar_decision = None
-    state.last_tool_decision = None
-    sections = load_knowledge_sections(config, logger)
-    if not sections:
-        logger.error('Cannot load knowledge base sections')
-        return '小龍蝦找不到知識庫，請稍後再試。'
+    tracker = RequestStateTracker()
+    state.last_request_tracker = tracker.get_summary  # Store getter for current summary
 
-    intent = classify_question_intent(user_input)
-    task_type = classify_openclaw_task_type(user_input, intent)
-    tool_decision = evaluate_controlled_tool_use(state, tool_registry, policy_engine, approval_gate, task_type, user_input)
-    logger.info(
-        'AUDIT controlled tool task_type=%s tool=%s allowed=%s approval=%s reason=%s',
-        task_type,
-        tool_decision.get('tool_name'),
-        tool_decision.get('allowed'),
-        tool_decision.get('requires_approval'),
-        tool_decision.get('reason'),
-    )
-    controlled_response = build_controlled_action_response(task_type, tool_decision)
-    if controlled_response:
-        return controlled_response
+    try:
+        tracker.start_step('initialization')
+        state.last_agent_decision = None
+        state.last_sidecar_decision = None
+        state.last_tool_decision = None
+        sections = load_knowledge_sections(config, logger)
+        if not sections:
+            tracker.add_error('knowledge_load', 'Cannot load knowledge base sections')
+            logger.error('Cannot load knowledge base sections')
+            tracker.end_step(success=False, result='knowledge_load_failed')
+            return '小龍蝦找不到知識庫，請稍後再試。'
+        tracker.end_step(success=True, result='knowledge_loaded')
 
-    if config.agent_path_enabled:
-        agent_intent, agent_intent_reason = classify_agent_intent(user_input)
-        task_decision = dispatch_task(agent_intent, user_input)
-        action_result = run_action(task_decision.action)
-        state.last_agent_decision = {
-            'enabled': True,
-            'intent': agent_intent,
-            'intent_reason': agent_intent_reason,
-            'action': action_result.action,
-            'action_status': action_result.status,
-            'dispatch_reason': task_decision.reason,
-        }
+        tracker.start_step('intent_classification')
+        intent = classify_question_intent(user_input)
+        task_type = classify_openclaw_task_type(user_input, intent)
+        tracker.end_step(success=True, result={'intent': intent, 'task_type': task_type})
+
+        tracker.start_step('tool_evaluation')
+        tool_decision = evaluate_controlled_tool_use(state, config, tool_registry, policy_engine, approval_gate, task_type, user_input)
         logger.info(
-            'AUDIT agent decision intent=%s action=%s status=%s reason=%s',
-            agent_intent,
-            action_result.action,
-            action_result.status,
-            task_decision.reason,
+            'AUDIT controlled tool task_type=%s tool=%s allowed=%s approval=%s reason=%s',
+            task_type,
+            tool_decision.get('tool_name'),
+            tool_decision.get('allowed'),
+            tool_decision.get('requires_approval'),
+            tool_decision.get('reason'),
         )
-        if action_result.action == 'execute' or action_result.status == 'forbidden':
-            return 'Agent execute action is currently forbidden by default. Please confirm before any execution.'
+        controlled_response = build_controlled_action_response(task_type, tool_decision)
+        if controlled_response:
+            tracker.end_step(success=True, result='controlled_response')
+            return controlled_response
+        tracker.end_step(success=True, result='tool_evaluation_passed')
 
-    scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
-    teaching_plan = build_teaching_plan(intent, user_input) if config.teaching_planner_enabled else None
-    teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
-
-    sidecar_guidance = ''
-    if config.sidecar_enabled and task_type == 'command':
-        active_dispatcher = dispatcher or SidecarDispatcher(
-            logger,
-            mode=config.sidecar_mode,
-            timeout_seconds=config.sidecar_timeout_seconds,
-        )
-        decision, sidecar_result = active_dispatcher.dispatch(
-            user_input,
-            intent,
-            context={'route_intent': intent}
-        )
-        state.last_sidecar_decision = {
-            'enabled': True,
-            'should_call': decision.should_call_sidecar,
-            'reason': decision.reason,
-            'task_type': decision.task_type,
-            'requires_approval': bool(sidecar_result.requires_approval) if sidecar_result else False,
-            'fallback': decision.reason if not decision.should_call_sidecar else 'none',
-        }
-        logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
-        sidecar_guidance = format_sidecar_guidance(sidecar_result)
-        if sidecar_result and sidecar_result.requires_approval:
-            return sidecar_guidance.strip()
-
-    # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
-    if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
-        return build_insufficient_knowledge_response(
-            teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'
-        )
-
-    if config.official_site_retrieval_enabled:
-        course_info = providers.query_course_info(user_input)
-        if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
-            scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
-
-        news_info = providers.query_latest_news(user_input)
-        if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
-            scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
-
-        official_site_info = providers.query_official_site_map(user_input, intent)
-        if official_site_info:
-            scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
-
-    if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
-        logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
-        return build_insufficient_knowledge_response(
-            teaching_plan.next_action if teaching_plan else '請提供可核對的社團資料來源後再詢問。'
-        )
-
-    route_label, route_reason = classify_request(config, state, providers, user_input)
-    if route_label == state.route_local and should_force_general_route(user_input, intent):
-        logger.info('Overriding LOCAL route to GENERAL for non-sensitive club query intent=%s original_reason=%s', intent, route_reason)
-        route_label = state.route_general
-        route_reason = f'{route_reason}->override:general'
-
-    provider_chain = get_route_provider_chain(state, route_label, providers)
-    logger.info('Router selected route=%s reason=%s intent=%s providers=%s', route_label, route_reason, intent, provider_chain)
-
-    # 每個 provider 失敗就往下 fallback，整條鏈失敗才整體重試。
-    for attempt in range(3):
-        logger.debug('Route attempt %d/3 route=%s', attempt + 1, route_label)
-        for provider_name in provider_chain:
-            logger.debug('Attempting provider=%s route=%s', provider_name, route_label)
-            prompt = build_provider_prompt(
-                state,
-                route_label,
-                provider_name,
-                user_input,
-                scoped_knowledge,
-                intent,
-                manual_exists,
-                manual_hit,
-                history=history,
-                lessons_guidance=lessons_guidance,
-                teaching_plan_guidance=teaching_plan_guidance
+        if config.agent_path_enabled:
+            tracker.start_step('agent_processing')
+            agent_intent, agent_intent_reason = classify_agent_intent(user_input)
+            task_decision = dispatch_task(agent_intent, user_input)
+            action_result = run_action(task_decision.action)
+            state.last_agent_decision = {
+                'enabled': True,
+                'intent': agent_intent,
+                'intent_reason': agent_intent_reason,
+                'action': action_result.action,
+                'action_status': action_result.status,
+                'dispatch_reason': task_decision.reason,
+            }
+            logger.info(
+                'AUDIT agent decision intent=%s action=%s status=%s reason=%s',
+                agent_intent,
+                action_result.action,
+                action_result.status,
+                task_decision.reason,
             )
-            result = None
-            if provider_name == 'groq':
-                result = providers.ask_groq(prompt)
-            elif provider_name == 'xai':
-                result = providers.ask_xai(prompt)
-            elif provider_name == 'github':
-                result = providers.ask_github_models(prompt)
-            elif provider_name == 'gemini':
-                result = providers.ask_gemini(prompt)
-            elif provider_name == 'ollama':
-                result = providers.ask_ollama(prompt)
+            if action_result.action == 'execute' or action_result.status == 'forbidden':
+                tracker.end_step(success=True, result='agent_forbidden')
+                return 'Agent execute action is currently forbidden by default. Please confirm before any execution.'
+            tracker.end_step(success=True, result='agent_processed')
 
-            if result:
-                logger.info('Success with provider=%s route=%s intent=%s', provider_name, route_label, intent)
-                if sidecar_guidance:
-                    return f"{result}\n\n{sidecar_guidance}"
-                return result
+        tracker.start_step('knowledge_context_building')
+        scoped_knowledge, manual_exists, manual_hit = build_knowledge_context(sections, intent)
+        teaching_plan = build_teaching_plan(intent, user_input) if config.teaching_planner_enabled else None
+        teaching_plan_guidance = format_teaching_plan_for_prompt(teaching_plan, intent) if teaching_plan else ''
+        tracker.end_step(success=True, result='context_built')
 
-            logger.warning('Provider failed provider=%s route=%s, trying next fallback', provider_name, route_label)
+        sidecar_guidance = ''
+        if config.sidecar_enabled and task_type == 'command':
+            tracker.start_step('sidecar_processing')
+            openclaw_phase = config.openclaw_phase if config.openclaw_phase in {'observe', 'suggest', 'assist'} else 'suggest'
+            if openclaw_phase == 'observe':
+                state.last_sidecar_decision = {
+                    'enabled': True,
+                    'should_call': False,
+                    'reason': 'phase-observe',
+                    'task_type': 'observe',
+                    'requires_approval': True,
+                    'fallback': 'pending_review',
+                    'phase': openclaw_phase,
+                }
+                tracker.end_step(success=True, result='sidecar_observe_phase')
+                return '這個請求需要 pending review。OpenClaw 目前位於 observe phase，只記錄與審核，不提供自動建議。'
+            active_dispatcher = dispatcher or SidecarDispatcher(
+                logger,
+                mode=config.sidecar_mode,
+                timeout_seconds=config.sidecar_timeout_seconds,
+            )
+            decision, sidecar_result = active_dispatcher.dispatch(
+                user_input,
+                intent,
+                context={'route_intent': intent}
+            )
+            state.last_sidecar_decision = {
+                'enabled': True,
+                'should_call': decision.should_call_sidecar,
+                'reason': decision.reason,
+                'task_type': decision.task_type,
+                'requires_approval': bool(sidecar_result.requires_approval) if sidecar_result else False,
+                'fallback': decision.reason if not decision.should_call_sidecar else 'none',
+                'phase': openclaw_phase,
+            }
+            logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+            sidecar_guidance = format_sidecar_guidance(sidecar_result)
+            if sidecar_result and sidecar_result.requires_approval:
+                tracker.end_step(success=True, result='sidecar_approval_required')
+                return sidecar_guidance.strip()
+            tracker.end_step(success=True, result='sidecar_processed')
 
-        logger.warning('All providers failed in attempt %d for route=%s, retrying...', attempt + 1, route_label)
-        time.sleep(2)
+        # 規則/課程/組織類問題若 club_manual 無命中，直接明確回覆資料不足。
+        if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
+            tracker.end_step(success=True, result='insufficient_manual_knowledge')
+            return build_insufficient_knowledge_response(
+                teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'
+            )
 
-    logger.error('All providers failed after 3 attempts for route=%s chain=%s', route_label, provider_chain)
-    return '小龍蝦無法連線到任何 AI 服務，請稍後再試。'
+        if config.official_site_retrieval_enabled:
+            tracker.start_step('official_site_retrieval')
+            try:
+                course_info = providers.query_course_info(user_input)
+                if course_info and intent in {INTENT_COURSE, INTENT_PROMOTION}:
+                    scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 ---\n{course_info}'
+
+                news_info = providers.query_latest_news(user_input)
+                if news_info and intent in {INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_PROMOTION}:
+                    scoped_knowledge += f'\n\n--- 來自 台北市健言社最新消息 ---\n{news_info}'
+
+                official_site_info = providers.query_official_site_map(user_input, intent)
+                if official_site_info:
+                    scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
+                tracker.end_step(success=True, result='site_retrieval_completed')
+            except Exception as e:
+                tracker.add_error('site_retrieval', str(e))
+                logger.warning('Official site retrieval failed: %s', e)
+                tracker.end_step(success=False, result='site_retrieval_failed')
+
+        if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
+            logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
+            tracker.end_step(success=True, result='insufficient_facts')
+            return build_insufficient_knowledge_response(
+                teaching_plan.next_action if teaching_plan else '請提供可核對的社團資料來源後再詢問。'
+            )
+
+        tracker.start_step('routing')
+        route_label, route_reason = classify_request(config, state, providers, user_input)
+        if route_label == state.route_local and should_force_general_route(user_input, intent):
+            logger.info('Overriding LOCAL route to GENERAL for non-sensitive club query intent=%s original_reason=%s', intent, route_reason)
+            route_label = state.route_general
+            route_reason = f'{route_reason}->override:general'
+
+        provider_chain = get_route_provider_chain(state, route_label, providers)
+        logger.info('Router selected route=%s reason=%s intent=%s providers=%s', route_label, route_reason, intent, provider_chain)
+        tracker.end_step(success=True, result={'route': route_label, 'providers': provider_chain})
+
+        # 改進的 retry 邏輯：exponential backoff，最多 3 次，整條鏈失敗才重試
+        max_attempts = 3
+        base_backoff = 1.0
+        max_backoff = 10.0
+
+        for attempt in range(max_attempts):
+            tracker.start_step(f'provider_attempt_{attempt + 1}')
+            attempt_success = False
+
+            for provider_name in provider_chain:
+                tracker.start_step(f'provider_{provider_name}_call')
+                logger.debug('Attempting provider=%s route=%s attempt=%d', provider_name, route_label, attempt + 1)
+
+                prompt = build_provider_prompt(
+                    state,
+                    route_label,
+                    provider_name,
+                    user_input,
+                    scoped_knowledge,
+                    intent,
+                    manual_exists,
+                    manual_hit,
+                    history=history,
+                    lessons_guidance=lessons_guidance,
+                    teaching_plan_guidance=teaching_plan_guidance
+                )
+
+                result = None
+                provider_timeout = getattr(config, 'provider_timeout_seconds', 30)  # Default 30s timeout
+
+                try:
+                    with timeout_context(provider_timeout):
+                        if provider_name == 'groq':
+                            result = providers.ask_groq(prompt)
+                        elif provider_name == 'xai':
+                            result = providers.ask_xai(prompt)
+                        elif provider_name == 'github':
+                            result = providers.ask_github_models(prompt)
+                        elif provider_name == 'gemini':
+                            result = providers.ask_gemini(prompt)
+                        elif provider_name == 'ollama':
+                            result = providers.ask_ollama(prompt)
+                except TimeoutError:
+                    tracker.add_error('provider_timeout', f'Provider {provider_name} timed out after {provider_timeout}s')
+                    logger.warning('Provider timeout provider=%s route=%s timeout=%ds', provider_name, route_label, provider_timeout)
+                except Exception as e:
+                    error_type = type(e).__name__
+                    tracker.add_error('provider_error', f'Provider {provider_name} failed: {error_type}', {'exception': str(e)})
+                    logger.warning('Provider error provider=%s route=%s error=%s', provider_name, route_label, e)
+
+                if result:
+                    logger.info('Success with provider=%s route=%s intent=%s attempt=%d', provider_name, route_label, intent, attempt + 1)
+                    tracker.end_step(success=True, result=f'success_with_{provider_name}')
+                    attempt_success = True
+                    tracker.end_step(success=True, result=f'attempt_{attempt + 1}_success')
+                    if sidecar_guidance:
+                        return f"{result}\n\n{sidecar_guidance}"
+                    return result
+
+                tracker.end_step(success=False, result=f'{provider_name}_failed')
+                logger.warning('Provider failed provider=%s route=%s, trying next fallback', provider_name, route_label)
+
+            tracker.end_step(success=attempt_success, result=f'attempt_{attempt + 1}_completed')
+
+            if attempt_success:
+                break
+
+            if attempt < max_attempts - 1:
+                backoff_seconds = min(base_backoff * (2 ** attempt), max_backoff)
+                tracker.record_retry(attempt + 1, 'chain_failed', backoff_seconds)
+                logger.warning('All providers failed in attempt %d for route=%s, retrying in %.1fs...', attempt + 1, route_label, backoff_seconds)
+                time.sleep(backoff_seconds)
+
+        tracker.add_error('all_attempts_failed', f'All {max_attempts} attempts failed for route {route_label}')
+        logger.error('All providers failed after %d attempts for route=%s chain=%s', max_attempts, route_label, provider_chain)
+        tracker.end_step(success=False, result='all_attempts_failed')
+        return '小龍蝦無法連線到任何 AI 服務，請稍後再試。'
+
+    except Exception as e:
+        tracker.add_error('unexpected_error', str(e), {'traceback': str(e.__traceback__)})
+        logger.exception('Unexpected error in ask_ai')
+        tracker.end_step(success=False, result='unexpected_error')
+        return '小龍蝦發生意外錯誤，請稍後再試。'

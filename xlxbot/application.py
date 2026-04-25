@@ -1,4 +1,5 @@
 import errno
+import datetime
 import os
 import re
 import signal
@@ -13,7 +14,7 @@ from linebot.v3.messaging import ApiClient, Configuration, MessagingApi, ReplyMe
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 from .config import AppConfig, load_dotenv, validate_environment
-from .knowledge import append_memory_entry, check_knowledge_file
+from .knowledge import append_memory_entry, check_knowledge_file, get_formal_knowledge_files
 from .learning import (
     append_learning_event,
     append_pending_knowledge,
@@ -28,6 +29,7 @@ from .providers import ProviderService, check_ollama_model, check_ollama_service
 from .router import ask_ai
 from .runtime import RuntimeState
 from .sidecar import SidecarDispatcher
+from .tool_executor import ToolExecutor
 from .tool_registry import load_tool_registry
 from .webhook_sync import get_desired_webhook_url, sync_line_webhook, webhook_sync_worker
 
@@ -47,7 +49,8 @@ class BotApplication:
         self.tool_registry = load_tool_registry()
         self.policy_engine = PolicyEngine()
         self.approval_gate = ApprovalGate()
-        self.sidecar_dispatcher = SidecarDispatcher(self.logger, config=self.config)
+        self.tool_executor = ToolExecutor(self.tool_registry, self.logger)
+        self.sidecar_dispatcher = SidecarDispatcher(self.logger, config=self.config, tool_executor=self.tool_executor)
         self.line_bot_configuration = None
         self.handler = None
         if self.config.line_integration_enabled:
@@ -62,19 +65,34 @@ class BotApplication:
 
     def run_startup_checks(self):
         self.logger.info('Starting environment checks...')
-        self._run_preflight_checks()
-        # Ollama 失敗時改成降級，不阻止整體服務啟動。
-        if not check_ollama_service(self.config, self.logger):
-            self.logger.warning('Ollama service check failed. The bot will continue with non-Ollama providers if available.')
-        elif not check_ollama_model(self.config, self.logger, self.config.ollama_model_name):
-            self.logger.warning(
-                'Ollama model check failed. The bot will continue with non-Ollama providers if available. Install with: ollama pull %s',
-                self.config.ollama_model_name
-            )
-        if not check_knowledge_file(self.config, self.logger):
-            self.logger.error('Knowledge file check failed. Please ensure %s exists and contains content.', self.config.knowledge_file)
-            raise SystemExit(1)
-        self.logger.info('All environment checks passed. Starting bot...')
+        self.state.startup_checks_completed = True
+        self.state.startup_checks_passed = False
+        self.state.last_startup_error = None
+        try:
+            self._run_preflight_checks()
+            # Ollama 失敗時改成降級，不阻止整體服務啟動。
+            if not check_ollama_service(self.config, self.logger):
+                self.logger.warning('Ollama service check failed. The bot will continue with non-Ollama providers if available.')
+            elif not check_ollama_model(self.config, self.logger, self.config.ollama_model_name):
+                self.logger.warning(
+                    'Ollama model check failed. The bot will continue with non-Ollama providers if available. Install with: ollama pull %s',
+                    self.config.ollama_model_name
+                )
+            if not check_knowledge_file(self.config, self.logger):
+                error_message = f'Knowledge file check failed. Please ensure {self.config.knowledge_file} exists and contains content.'
+                self.logger.error(error_message)
+                self.state.last_startup_error = error_message
+                raise SystemExit(1)
+            self.state.startup_checks_passed = True
+            self.logger.info('All environment checks passed. Starting bot...')
+        except SystemExit:
+            if self.state.last_startup_error is None:
+                self.state.last_startup_error = 'startup_checks_exited'
+            raise
+        except Exception as exc:
+            self.state.last_startup_error = str(exc)[:200]
+            self.logger.exception('Unexpected startup failure')
+            raise
 
     def _run_preflight_checks(self):
         self.logger.info(
@@ -243,10 +261,126 @@ class BotApplication:
 
         time.sleep(0.2)
 
+    def _utcnow_iso(self):
+        return datetime.datetime.now().isoformat()
+
+    def _preview_text(self, text, max_chars=120):
+        return (text or '').replace('\n', ' ')[:max_chars]
+
+    def _mark_message_received(self, user_id, user_text):
+        self.state.last_message_received_at = self._utcnow_iso()
+        self.state.last_message_user_id = user_id or 'unknown'
+        self.state.last_message_preview = self._preview_text(user_text)
+
+    def _mark_message_replied(self):
+        self.state.last_message_replied_at = self._utcnow_iso()
+        self.state.last_message_failed_at = None
+        self.state.last_message_error = None
+
+    def _mark_message_failed(self, reason):
+        self.state.last_message_failed_at = self._utcnow_iso()
+        self.state.last_message_error = (reason or 'unknown_error')[:200]
+
+    def _build_health_payload(self):
+        provider_status = {
+            name: self.providers.is_provider_available(name)
+            for name in ('ollama', 'gemini', 'groq', 'xai', 'github')
+        }
+        formal_knowledge_files = get_formal_knowledge_files(self.config, self.logger)
+        sidecar_ready, sidecar_missing = self.sidecar_dispatcher.is_ready()
+        sidecar_phase = self.config.openclaw_phase if self.config.openclaw_phase in {'observe', 'suggest', 'assist'} else 'suggest'
+
+        # 獲取最新的請求追蹤摘要
+        current_request_summary = None
+        if self.state.last_request_tracker:
+            try:
+                current_request_summary = self.state.last_request_tracker()
+            except Exception:
+                current_request_summary = None
+
+        status = 'ok'
+        reasons = []
+        if self.state.last_startup_error:
+            status = 'error'
+            reasons.append('startup_error')
+        elif not formal_knowledge_files:
+            status = 'error'
+            reasons.append('knowledge_missing')
+        elif not self.config.line_integration_enabled or not any(provider_status.values()) or (self.config.sidecar_enabled and not sidecar_ready):
+            status = 'degraded'
+            if not self.config.line_integration_enabled:
+                reasons.append('line_disabled')
+            if not any(provider_status.values()):
+                reasons.append('no_provider_available')
+            if self.config.sidecar_enabled and not sidecar_ready:
+                reasons.append('sidecar_not_ready')
+
+        # 檢查最近錯誤是否影響健康狀態
+        recent_critical_errors = [
+            err for err in self.state.recent_errors[-10:]  # Last 10 errors
+            if time.time() - err['timestamp'] < 300  # Within last 5 minutes
+            and err['type'] in ['provider_chain_failed', 'unexpected_error']
+        ]
+        if recent_critical_errors:
+            status = 'degraded'
+            reasons.append('recent_critical_errors')
+
+        return {
+            'status': status,
+            'reasons': reasons,
+            'checks': {
+                'startup_checks_completed': self.state.startup_checks_completed,
+                'startup_checks_passed': self.state.startup_checks_passed,
+                'line_integration_enabled': self.config.line_integration_enabled,
+                'formal_knowledge_files': len(formal_knowledge_files),
+                'providers': provider_status,
+                'sidecar': {
+                    'enabled': self.config.sidecar_enabled,
+                    'mode': self.sidecar_dispatcher.mode,
+                    'phase': sidecar_phase,
+                    'ready': sidecar_ready,
+                    'missing': sidecar_missing,
+                },
+                'webhook': {
+                    'auto_update': self.config.line_webhook_auto_update,
+                    'last_detected_ngrok_url': self.state.last_detected_ngrok_url,
+                    'last_synced_webhook_url': self.state.last_synced_webhook_url,
+                },
+                'observability': {
+                    'provider_health_status': self.state.provider_health_status,
+                    'recent_errors_count': len(self.state.recent_errors),
+                    'recent_critical_errors': len(recent_critical_errors),
+                    'current_request_active': current_request_summary is not None,
+                    'current_request_duration': current_request_summary.get('total_duration') if current_request_summary else None,
+                },
+            },
+            'last_message': {
+                'user_id': self.state.last_message_user_id,
+                'preview': self.state.last_message_preview,
+                'received_at': self.state.last_message_received_at,
+                'replied_at': self.state.last_message_replied_at,
+                'failed_at': self.state.last_message_failed_at,
+                'error': self.state.last_message_error,
+            },
+            'current_request_summary': current_request_summary,
+        }
+
+    def _reply_to_line(self, reply_token, text):
+        with ApiClient(self.line_bot_configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=text)]
+                )
+            )
+
     def _register_routes(self):
         @self.app.route('/health', methods=['GET'])
         def health_check():
-            return jsonify({'status': 'ok'})
+            payload = self._build_health_payload()
+            http_status = 200 if payload['status'] != 'error' else 503
+            return jsonify(payload), http_status
 
         @self.app.route('/sync-webhook', methods=['POST'])
         def sync_webhook():
@@ -283,207 +417,242 @@ class BotApplication:
                 user_text = event.message.text
                 user_id = getattr(event.source, 'user_id', None)
                 self.logger.info('Received text message from user_id=%s text=%s', user_id, user_text)
+                self._mark_message_received(user_id, user_text)
 
-                # 每位使用者保留一段簡短對話歷史，提供後續回答上下文。
-                if user_id not in self.state.conversation_history:
-                    self.state.conversation_history[user_id] = []
-                history = self.state.conversation_history[user_id]
+                try:
+                    # 每位使用者保留一段簡短對話歷史，提供後續回答上下文。
+                    if user_id not in self.state.conversation_history:
+                        self.state.conversation_history[user_id] = []
+                    history = self.state.conversation_history[user_id]
 
-                if detect_user_correction(user_text):
-                    correction_decision = self.policy_engine.evaluate(
-                        intent='user_feedback',
-                        action='capture_correction',
-                        risk='low',
-                    )
-                    correction_approval = self.approval_gate.decide(correction_decision)
-                    append_learning_event(
-                        self.config,
-                        self.logger,
-                        event_type='USER_CORRECTION',
-                        user_id=user_id,
-                        user_input=user_text,
-                        details={'category': 'user_feedback'},
-                        intent='user_feedback',
-                        action='capture_correction',
-                        risk='low',
-                        approval='required' if correction_approval.requires_approval else 'not_required',
-                        fallback=correction_approval.fallback,
-                    )
-
-                lessons_guidance = load_pre_answer_lessons(self.config, self.logger)
-                ai_response = ask_ai(
-                    self.config,
-                    self.state,
-                    self.logger,
-                    self.providers,
-                    user_text,
-                    history,
-                    dispatcher=self.sidecar_dispatcher,
-                    lessons_guidance=lessons_guidance,
-                    tool_registry=self.tool_registry,
-                    policy_engine=self.policy_engine,
-                    approval_gate=self.approval_gate,
-                )
-                if self.state.last_tool_decision:
-                    append_learning_event(
-                        self.config,
-                        self.logger,
-                        event_type='TOOL_DECISION',
-                        user_id=user_id,
-                        user_input=user_text,
-                        details=self.state.last_tool_decision,
-                        intent=self.state.last_tool_decision.get('task_type', 'unknown'),
-                        action=self.state.last_tool_decision.get('tool_name', 'unknown'),
-                        risk=self.state.last_tool_decision.get('risk', 'unknown'),
-                        approval='required' if self.state.last_tool_decision.get('requires_approval') else 'not_required',
-                        fallback=self.state.last_tool_decision.get('fallback', 'none'),
-                    )
-                if self.state.last_agent_decision:
-                    append_learning_event(
-                        self.config,
-                        self.logger,
-                        event_type='AGENT_DECISION',
-                        user_id=user_id,
-                        user_input=user_text,
-                        details=self.state.last_agent_decision,
-                        intent=self.state.last_agent_decision.get('intent', 'unknown'),
-                        action=self.state.last_agent_decision.get('action', 'unknown'),
-                        risk='medium' if self.state.last_agent_decision.get('action') == 'execute' else 'low',
-                        approval='required' if self.state.last_agent_decision.get('action') == 'execute' else 'not_required',
-                        fallback=self.state.last_agent_decision.get('dispatch_reason', 'none'),
-                    )
-                if self.state.last_sidecar_decision:
-                    append_learning_event(
-                        self.config,
-                        self.logger,
-                        event_type='SIDECAR_DECISION',
-                        user_id=user_id,
-                        user_input=user_text,
-                        details=self.state.last_sidecar_decision,
-                        intent=self.state.last_sidecar_decision.get('task_type', 'unknown'),
-                        action='sidecar_dispatch',
-                        risk='medium',
-                        approval='required' if self.state.last_sidecar_decision.get('requires_approval') else 'not_required',
-                        fallback=self.state.last_sidecar_decision.get('fallback', self.state.last_sidecar_decision.get('reason', 'none')),
-                    )
-
-                learned_matches = parse_learned_tags(ai_response)
-                if learned_matches:
-                    for match in learned_matches:
-                        fact = match.strip()
-                        if not fact:
-                            continue
-                        append_pending_knowledge(self.config, self.logger, fact, user_id=user_id)
+                    if detect_user_correction(user_text):
+                        correction_decision = self.policy_engine.evaluate(
+                            intent='user_feedback',
+                            action='capture_correction',
+                            risk='low',
+                        )
+                        correction_approval = self.approval_gate.decide(correction_decision)
                         append_learning_event(
                             self.config,
                             self.logger,
-                            event_type='PENDING_KNOWLEDGE_CAPTURED',
+                            event_type='USER_CORRECTION',
                             user_id=user_id,
                             user_input=user_text,
-                            details={'category': 'pending_review', 'fact': fact[:200]}
+                            details={'category': 'user_feedback'},
+                            intent='user_feedback',
+                            action='capture_correction',
+                            risk='low',
+                            approval='required' if correction_approval.requires_approval else 'not_required',
+                            fallback=correction_approval.fallback,
                         )
-                        self.logger.info('Saved pending-review knowledge: %s', fact)
-                    ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
 
-                if '資料不足' in ai_response or '查不到' in ai_response:
-                    insufficient_decision = self.policy_engine.evaluate(
-                        intent='qa_response',
-                        action='answer_with_insufficient_data',
-                        risk='low',
-                    )
-                    insufficient_approval = self.approval_gate.decide(insufficient_decision)
-                    append_learning_event(
+                    lessons_guidance = load_pre_answer_lessons(self.config, self.logger)
+                    ai_response = ask_ai(
                         self.config,
+                        self.state,
                         self.logger,
-                        event_type='ANSWER_WITH_INSUFFICIENT_DATA',
-                        user_id=user_id,
-                        user_input=user_text,
-                        bot_response=ai_response,
-                        details={'category': 'insufficient_data'},
-                        intent='qa_response',
-                        action='answer_with_insufficient_data',
-                        risk='low',
-                        approval='required' if insufficient_approval.requires_approval else 'not_required',
-                        fallback=insufficient_approval.fallback,
-                    )
-                elif '無法連線到任何 AI 服務' in ai_response:
-                    failure_decision = self.policy_engine.evaluate(
-                        intent='provider_runtime',
-                        action='provider_chain_failed',
-                        risk='medium',
-                    )
-                    failure_approval = self.approval_gate.decide(failure_decision)
-                    append_learning_event(
-                        self.config,
-                        self.logger,
-                        event_type='ANSWER_FAILURE',
-                        user_id=user_id,
-                        user_input=user_text,
-                        bot_response=ai_response,
-                        details={'reason': 'provider_chain_failed'},
-                        intent='provider_runtime',
-                        action='provider_chain_failed',
-                        risk='medium',
-                        approval='required' if failure_approval.requires_approval else 'not_required',
-                        fallback=failure_approval.fallback,
+                        self.providers,
+                        user_text,
+                        history,
+                        dispatcher=self.sidecar_dispatcher,
+                        lessons_guidance=lessons_guidance,
+                        tool_registry=self.tool_registry,
+                        policy_engine=self.policy_engine,
+                        approval_gate=self.approval_gate,
                     )
 
-                self.logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
-                history.append((user_text, ai_response))
-                if len(history) > self.state.max_history_length:
-                    history.pop(0)
+                    # 記錄請求追蹤摘要到狀態
+                    if self.state.last_request_tracker:
+                        try:
+                            tracker_summary = self.state.last_request_tracker()
+                            if tracker_summary.get('errors_count', 0) > 0:
+                                self.state.add_recent_error(
+                                    'request_processing_error',
+                                    f'Request had {tracker_summary["errors_count"]} errors',
+                                    {'request_id': tracker_summary.get('request_id'), 'errors': tracker_summary.get('errors')}
+                                )
+                        except Exception as e:
+                            self.logger.warning('Failed to record request tracker: %s', e)
 
-                # 每次互動都寫入每日記憶檔，後續可再彙整成長期記憶。
-                append_memory_entry(self.config, self.logger, self.providers.ask_ollama, user_id, user_text, ai_response)
-                append_learning_event(
-                    self.config,
-                    self.logger,
-                    event_type='ANSWER_SENT',
-                    user_id=user_id,
-                    user_input=user_text,
-                    bot_response=ai_response,
-                    intent='qa_response',
-                    action='answer_sent',
-                    risk='low',
-                    approval='not_required',
-                    fallback='none',
-                )
-                rebuild_lessons_and_troubleshooting(self.config, self.logger)
+                    if self.state.last_tool_decision:
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='TOOL_DECISION',
+                            user_id=user_id,
+                            user_input=user_text,
+                            details=self.state.last_tool_decision,
+                            intent=self.state.last_tool_decision.get('task_type', 'unknown'),
+                            action=self.state.last_tool_decision.get('tool_name', 'unknown'),
+                            risk=self.state.last_tool_decision.get('risk', 'unknown'),
+                            approval='required' if self.state.last_tool_decision.get('requires_approval') else 'not_required',
+                            fallback=self.state.last_tool_decision.get('fallback', 'none'),
+                        )
+                    if self.state.last_agent_decision:
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='AGENT_DECISION',
+                            user_id=user_id,
+                            user_input=user_text,
+                            details=self.state.last_agent_decision,
+                            intent=self.state.last_agent_decision.get('intent', 'unknown'),
+                            action=self.state.last_agent_decision.get('action', 'unknown'),
+                            risk='medium' if self.state.last_agent_decision.get('action') == 'execute' else 'low',
+                            approval='required' if self.state.last_agent_decision.get('action') == 'execute' else 'not_required',
+                            fallback=self.state.last_agent_decision.get('dispatch_reason', 'none'),
+                        )
+                    if self.state.last_sidecar_decision:
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='SIDECAR_DECISION',
+                            user_id=user_id,
+                            user_input=user_text,
+                            details=self.state.last_sidecar_decision,
+                            intent=self.state.last_sidecar_decision.get('task_type', 'unknown'),
+                            action='sidecar_dispatch',
+                            risk='medium',
+                            approval='required' if self.state.last_sidecar_decision.get('requires_approval') else 'not_required',
+                            fallback=self.state.last_sidecar_decision.get('fallback', self.state.last_sidecar_decision.get('reason', 'none')),
+                        )
 
-                try:
-                    with ApiClient(self.line_bot_configuration) as api_client:
-                        line_bot_api = MessagingApi(api_client)
-                        line_bot_api.reply_message(
-                            ReplyMessageRequest(
-                                reply_token=event.reply_token,
-                                messages=[TextMessage(text=ai_response)]
+                    learned_matches = parse_learned_tags(ai_response)
+                    if learned_matches:
+                        for match in learned_matches:
+                            fact = match.strip()
+                            if not fact:
+                                continue
+                            append_pending_knowledge(self.config, self.logger, fact, user_id=user_id)
+                            append_learning_event(
+                                self.config,
+                                self.logger,
+                                event_type='PENDING_KNOWLEDGE_CAPTURED',
+                                user_id=user_id,
+                                user_input=user_text,
+                                details={'category': 'pending_review', 'fact': fact[:200]}
                             )
+                            self.logger.info('Saved pending-review knowledge: %s', fact)
+                        ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
+
+                    if '資料不足' in ai_response or '查不到' in ai_response:
+                        insufficient_decision = self.policy_engine.evaluate(
+                            intent='qa_response',
+                            action='answer_with_insufficient_data',
+                            risk='low',
                         )
-                except Exception as e:
-                    send_error_decision = self.policy_engine.evaluate(
-                        intent='line_delivery',
-                        action='send_line_reply',
-                        risk='medium',
+                        insufficient_approval = self.approval_gate.decide(insufficient_decision)
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='ANSWER_WITH_INSUFFICIENT_DATA',
+                            user_id=user_id,
+                            user_input=user_text,
+                            bot_response=ai_response,
+                            details={'category': 'insufficient_data'},
+                            intent='qa_response',
+                            action='answer_with_insufficient_data',
+                            risk='low',
+                            approval='required' if insufficient_approval.requires_approval else 'not_required',
+                            fallback=insufficient_approval.fallback,
+                        )
+                    elif '無法連線到任何 AI 服務' in ai_response:
+                        failure_decision = self.policy_engine.evaluate(
+                            intent='provider_runtime',
+                            action='provider_chain_failed',
+                            risk='medium',
+                        )
+                        failure_approval = self.approval_gate.decide(failure_decision)
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='ANSWER_FAILURE',
+                            user_id=user_id,
+                            user_input=user_text,
+                            bot_response=ai_response,
+                            details={'reason': 'provider_chain_failed'},
+                            intent='provider_runtime',
+                            action='provider_chain_failed',
+                            risk='medium',
+                            approval='required' if failure_approval.requires_approval else 'not_required',
+                            fallback=failure_approval.fallback,
+                        )
+                        # 記錄 provider 鏈失敗到狀態
+                        self.state.add_recent_error('provider_chain_failed', 'All providers failed', {'user_input': user_text[:100]})
+
+                    self.logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
+                    history.append((user_text, ai_response))
+                    if len(history) > self.state.max_history_length:
+                        history.pop(0)
+
+                    # 每次互動都寫入每日記憶檔，後續可再彙整成長期記憶。
+                    append_memory_entry(self.config, self.logger, self.providers.ask_ollama, user_id, user_text, ai_response)
+                    append_learning_event(
+                        self.config,
+                        self.logger,
+                        event_type='ANSWER_SENT',
+                        user_id=user_id,
+                        user_input=user_text,
+                        bot_response=ai_response,
+                        intent='qa_response',
+                        action='answer_sent',
+                        risk='low',
+                        approval='not_required',
+                        fallback='none',
                     )
-                    send_error_approval = self.approval_gate.decide(send_error_decision)
+                    rebuild_lessons_and_troubleshooting(self.config, self.logger)
+
+                    try:
+                        self._reply_to_line(event.reply_token, ai_response)
+                        self._mark_message_replied()
+                    except Exception as e:
+                        self._mark_message_failed(f'send_line_reply_failed:{str(e)[:180]}')
+                        send_error_decision = self.policy_engine.evaluate(
+                            intent='line_delivery',
+                            action='send_line_reply',
+                            risk='medium',
+                        )
+                        send_error_approval = self.approval_gate.decide(send_error_decision)
+                        append_learning_event(
+                            self.config,
+                            self.logger,
+                            event_type='SYSTEM_ERROR',
+                            user_id=user_id,
+                            user_input=user_text,
+                            bot_response=ai_response,
+                            details={'error_type': 'send_line_reply_failed', 'reason': str(e)[:200]},
+                            intent='line_delivery',
+                            action='send_line_reply',
+                            risk='medium',
+                            approval='required' if send_error_approval.requires_approval else 'not_required',
+                            fallback=send_error_approval.fallback,
+                        )
+                        self.logger.exception('Failed to send LINE reply')
+                except Exception as e:
+                    self._mark_message_failed(f'process_message_failed:{str(e)[:180]}')
+                    self.state.add_recent_error('process_message_failed', str(e), {'user_input': user_text[:100]})
                     append_learning_event(
                         self.config,
                         self.logger,
                         event_type='SYSTEM_ERROR',
                         user_id=user_id,
                         user_input=user_text,
-                        bot_response=ai_response,
-                        details={'error_type': 'send_line_reply_failed', 'reason': str(e)[:200]},
-                        intent='line_delivery',
-                        action='send_line_reply',
+                        details={'error_type': 'process_message_failed', 'reason': str(e)[:200]},
+                        intent='message_runtime',
+                        action='process_message',
                         risk='medium',
-                        approval='required' if send_error_approval.requires_approval else 'not_required',
-                        fallback=send_error_approval.fallback,
+                        approval='not_required',
+                        fallback='reply_with_safe_error',
                     )
-                    self.logger.exception('Failed to send LINE reply')
+                    self.logger.exception('Unhandled exception while processing LINE message')
+                    safe_reply = '小龍蝦目前處理訊息時發生錯誤，請稍後再試。'
+                    try:
+                        self._reply_to_line(event.reply_token, safe_reply)
+                    except Exception:
+                        self.logger.exception('Failed to send safe fallback LINE reply')
 
             # LINE webhook 應盡快回 200，實際 AI 處理改到背景執行。
-            thread = threading.Thread(target=process_message)
+            thread = threading.Thread(target=process_message, daemon=True)
             thread.start()
 
     def run(self):

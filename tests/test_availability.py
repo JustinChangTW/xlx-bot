@@ -66,7 +66,11 @@ class AvailabilityTestCase(unittest.TestCase):
         response = client.get('/health')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json, {'status': 'ok'})
+        self.assertIn(response.json['status'], {'ok', 'degraded'})
+        self.assertIn('checks', response.json)
+        self.assertIn('providers', response.json['checks'])
+        self.assertIn('sidecar', response.json['checks'])
+        self.assertFalse(response.json['checks']['line_integration_enabled'])
 
     def test_callback_returns_503_when_line_integration_disabled(self):
         app = self.build_app()

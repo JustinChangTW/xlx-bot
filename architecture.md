@@ -1,99 +1,78 @@
-# 系統架構分析
+# xlx-bot 系統架構
 
-本文件提供 Mermaid 可編輯版本，便於版本控管與後續維護。
+本文件描述 xlx-bot 的實際系統架構，基於 Flask + LINE Messaging API + 多模型 provider + 模組化知識庫 + 受控 sidecar。
 
-> 備註：因 PR 流程限制（不納入二進位檔），本次僅保留文字與 Mermaid 原始碼。
-
-## Mermaid（可編輯版本）
+## xlx-bot 架構圖
 
 ```mermaid
 flowchart TD
     %% ========== 使用者層 ==========
-    subgraph L1[使用者層]
-        U[User<br/>使用者發送訊息]
+    subgraph U[使用者層]
+        User[User<br/>LINE 使用者]
     end
 
     %% ========== 平台層 ==========
-    subgraph L2[平台層]
-        MP[Messaging Platform / Chat Platform<br/>接收訊息並觸發 webhook]
-    end
-
-    %% ========== 入口層 ==========
-    subgraph L3[入口層]
-        WH[Webhook Endpoint / Bot Controller<br/>接收事件 / 驗證 / 回應 ACK]
-    end
-
-    %% ========== 路由層 ==========
-    subgraph L4[路由層]
-        EP[Event Parser<br/>解析事件與訊息內容]
-        MR[Message Router<br/>判斷訊息類型與路徑]
-        CD[Command Dispatcher<br/>分派命令到對應 Handler]
+    subgraph P[平台層]
+        LINE[LINE Messaging API<br/>接收訊息並觸發 webhook]
     end
 
     %% ========== 應用層 ==========
-    subgraph L5[應用層]
-        CH[Command Handlers<br/>處理指令與輸入驗證]
-        AS[Application Services<br/>協調流程與業務邏輯]
+    subgraph A[應用層]
+        Flask[Flask App<br/>Webhook 端點]
+        WebhookHandler[Webhook Handler<br/>驗證與解析訊息]
+        Router[Router<br/>意圖分類與路由]
+        Application[Application<br/>核心應用邏輯]
     end
 
-    %% ========== 核心邏輯層 ==========
-    subgraph L6[核心邏輯層]
-        DL[Domain Logic / Business Rules<br/>核心規則與邏輯處理]
-    end
-
-    %% ========== 整合層 ==========
-    subgraph L7[整合層]
-        OA[OpenAI API<br/>AI 推論與生成]
-        TP[Third-party APIs<br/>外部服務整合]
-        NS[Notification Services<br/>通知推播服務]
+    %% ========== 服務層 ==========
+    subgraph S[服務層]
+        Knowledge[Knowledge Service<br/>載入 knowledge/ 檔案]
+        Providers[Provider Service<br/>AI 模型提供者鏈]
+        Sidecar[Sidecar Dispatcher<br/>受控任務處理]
+        Learning[Learning Service<br/>學習與記憶]
+        Policy[Policy Engine<br/>風險評估]
+        Approval[Approval Gate<br/>審核閘門]
     end
 
     %% ========== 資料層 ==========
-    subgraph L8[資料層]
-        DB[Database<br/>持久化資料]
-        CA[Cache<br/>快取提升效能]
-        FS[File Storage<br/>檔案儲存]
+    subgraph D[資料層]
+        KnowledgeFiles[knowledge/<br/>模組化知識檔案]
+        Memory[memory/<br/>對話日誌]
+        Config[config/<br/>配置檔案]
     end
 
-    %% ========== 支援層 ==========
-    subgraph L9[支援層]
-        CFG[Config<br/>系統設定管理]
-        SEC[Secrets<br/>金鑰與憑證]
-        LOG[Logging<br/>紀錄與追蹤]
-        MON[Monitoring<br/>監控與告警]
+    %% ========== 外部服務 ==========
+    subgraph E[外部服務]
+        Ollama[Ollama<br/>本地 AI 模型]
+        Groq[Groq API]
+        OpenAI[OpenAI API]
+        Gemini[Gemini API]
+        OpenClaw[OpenClaw<br/>Sidecar 服務]
     end
 
     %% ========== 主流程 ==========
-    U -->|使用者送出訊息| MP
-    MP -->|觸發 Webhook| WH
-    WH -->|接收事件| EP
-    EP --> MR
-    MR --> CD
-    CD -->|分派命令| CH
-    CH --> AS
-    AS --> DL
+    User -->|發送訊息| LINE
+    LINE -->|Webhook| Flask
+    Flask --> WebhookHandler
+    WebhookHandler --> Router
+    Router --> Application
+    Application --> Knowledge
+    Application --> Providers
+    Application --> Sidecar
+    Application --> Learning
+    Application --> Policy
+    Application --> Approval
 
-    %% ========== Service 呼叫 ==========
-    AS -->|呼叫 API| OA
-    AS -->|呼叫 API| TP
-    AS -->|發送通知| NS
+    Knowledge --> KnowledgeFiles
+    Learning --> Memory
+    Providers --> Ollama
+    Providers --> Groq
+    Providers --> OpenAI
+    Providers --> Gemini
+    Sidecar --> OpenClaw
 
-    AS -->|讀寫資料| DB
-    AS --> CA
-    AS --> FS
-
-    %% ========== 回傳流程 ==========
-    DL --> AS
-    AS --> CH
-    CH --> WH
-    WH -->|回傳結果| MP
-    MP --> U
-
-    %% ========== 支援層關聯 ==========
-    CFG -.-> WH
-    SEC -.-> WH
-    LOG -.-> AS
-    MON -.-> AS
+    Application -->|回覆訊息| LINE
+    LINE --> User
 ```
 
 ## Sidecar Dispatcher 設計（Phase 0/1）

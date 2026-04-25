@@ -46,14 +46,39 @@
 ## 專案結構
 
 - `main.py`：機器人主程式
+- `xlxbot/`：核心模組目錄
+  - `application.py`：Flask 應用與 LINE webhook 處理
+  - `config.py`：配置管理
+  - `knowledge.py`：知識載入與管理
+  - `learning.py`：學習與記憶處理
+  - `logging_setup.py`：日誌設定
+  - `policy_engine.py`：政策引擎
+  - `providers.py`：AI provider 服務
+  - `response_strategy.py`：回應策略
+  - `router.py`：訊息路由
+  - `runtime.py`：運行狀態
+  - `teaching_planner.py`：教學規劃
+  - `tool_registry.py`：工具註冊
+  - `webhook_sync.py`：webhook 同步
+  - `agent/`：代理層
+    - `action_layer.py`：動作層
+    - `intent_classifier.py`：意圖分類器
+    - `task_dispatcher.py`：任務分派
+  - `sidecar/`：sidecar 模組
+    - `dispatcher.py`：dispatcher
+    - `gateway.py`：gateway
+    - `schemas.py`：schemas
 - `knowledge/`：模組化知識檔案目錄（一個主題一個 `.md`）
 - `knowledge.txt`：知識索引說明檔
 - `skills/`：模組化技能檔案目錄（一個 skill 一個 `.md`）
-- `SOUL.md`：Agent 的核心人格與行為指令（可選）
-- `AGENTS.md`：啟動流程與記憶讀取規則（可選）
-- `USER.md`：使用者偏好與個人化資訊（可選）
 - `memory/`：每日對話日誌檔案
-- `memory.md`：長期記憶摘要檔案
+- `learned_knowledge.txt`：學習到的知識
+- `AGENTS.md`：啟動流程與記憶讀取規則
+- `config/`：配置檔案目錄
+  - `config.yaml`：基本配置
+  - `tool_registry.yaml`：工具註冊
+- `docs/`：文檔目錄
+- `tests/`：測試檔案目錄
 - `Dockerfile`：建置容器映像
 - `docker-compose.yml`：本地開發與部署設定
 - `.env`：LINE 憑證與設定

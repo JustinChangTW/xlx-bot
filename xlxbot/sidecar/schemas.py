@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -21,6 +21,8 @@ class SidecarResult:
     requires_approval: bool
     audit_ref: str
     error: str = ''
+    execution_allowed: bool = False
+    execution_result: Optional['ExecutionResult'] = None
 
 
 @dataclass

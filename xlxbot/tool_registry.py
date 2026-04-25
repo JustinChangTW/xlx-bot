@@ -24,6 +24,29 @@ class ToolRegistry:
                 return tool
         return None
 
+    def get_missing_env_constraints(self, tool: ToolDefinition, config):
+        if tool is None:
+            return ['tool_definition_missing']
+
+        checks = {
+            'KNOWLEDGE_FILE': bool(getattr(config, 'knowledge_file', '')),
+            'OLLAMA_API_URL': bool(getattr(config, 'ollama_api_url', '')),
+            'OLLAMA_MODEL_NAME': bool(getattr(config, 'ollama_model_name', '')),
+            'LINE_ACCESS_TOKEN': bool(getattr(config, 'line_access_token', '')),
+            'LINE_CHANNEL_SECRET': bool(getattr(config, 'line_channel_secret', '')),
+            'PUBLIC_BASE_URL': bool(getattr(config, 'public_base_url', '') or getattr(config, 'ngrok_api_url', '')),
+            'MEMORY_DIR': bool(getattr(config, 'memory_dir', '')),
+            'SIDECAR_ENABLED': bool(getattr(config, 'sidecar_enabled', False)),
+            'OPENCLAW_BASE_URL': bool(getattr(config, 'openclaw_base_url', '')),
+            'OPENCLAW_API_KEY': bool(getattr(config, 'openclaw_api_key', '')),
+        }
+
+        missing = []
+        for constraint in tool.env_constraints:
+            if not checks.get(constraint, bool(os.getenv(constraint, '').strip())):
+                missing.append(constraint)
+        return missing
+
 
 _YAML_AVAILABLE = importlib.util.find_spec('yaml') is not None
 if _YAML_AVAILABLE:

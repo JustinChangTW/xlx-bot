@@ -2,6 +2,7 @@ import uuid
 
 from .gateway import MockGateway, OpenClawGateway
 from .schemas import DispatchDecision, SidecarRequest, SidecarResult
+from ..tool_executor import ToolExecutor
 
 
 TASK_KEYWORDS = {
@@ -39,12 +40,13 @@ def build_sidecar_gateway(config, logger):
 
 
 class SidecarDispatcher:
-    def __init__(self, logger, config=None, gateway=None, mode=None, timeout_seconds=None):
+    def __init__(self, logger, config=None, gateway=None, mode=None, timeout_seconds=None, tool_executor=None):
         self.logger = logger
         self.config = config
         requested_mode = (mode or getattr(config, 'sidecar_mode', 'mock') or 'mock').strip().lower()
         self.mode = requested_mode if requested_mode in {'mock', 'openclaw'} else 'mock'
         self.timeout_seconds = int(timeout_seconds or getattr(config, 'sidecar_timeout_seconds', 8) or 8)
+        self.phase = getattr(config, 'openclaw_phase', 'suggest')  # Phase: observe, suggest, assist
         if requested_mode not in {'mock', 'openclaw'}:
             self.logger.warning('Unknown sidecar mode=%s, fallback to mock', requested_mode)
         if gateway is not None:
@@ -53,6 +55,19 @@ class SidecarDispatcher:
             self.gateway = build_sidecar_gateway(config, logger)
         else:
             self.gateway = MockGateway()
+        self.tool_executor = tool_executor
+
+    def is_ready(self):
+        if not self.config:
+            return True, []
+        if not getattr(self.config, 'sidecar_enabled', False):
+            return False, ['SIDECAR_ENABLED']
+        if self.mode == 'openclaw':
+            missing = []
+            if not getattr(self.config, 'openclaw_base_url', ''):
+                missing.append('OPENCLAW_BASE_URL')
+            return not missing, missing
+        return True, []
 
     def _infer_task_type(self, user_input: str) -> str:
         text = (user_input or '').lower()
@@ -67,13 +82,18 @@ class SidecarDispatcher:
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
 
-        # 事實型與公告查詢預設不需要走 sidecar。
+        # Check OpenClaw phase
+        openclaw_phase = getattr(self.config, 'openclaw_phase', 'suggest') if self.config else 'suggest'
+        if openclaw_phase == 'observe':
+            return DispatchDecision(False, 'phase-observe', task_type)
+
+        # 事實型與公告查詢預設不觸發 sidecar。
         if intent in FACT_FIRST_INTENTS:
             return DispatchDecision(False, 'fact-first', task_type)
 
         if intent in {'RULE_QUERY', 'COURSE_QUERY', 'ORG_QUERY'}:
             project_like_keywords = ['重構', '整合', '專案', 'project', 'debug', '除錯', '錯誤', '故障']
-            if any(keyword in text for keyword in project_like_keywords):
+            if any(keyword in text for keyword in keywords):
                 return DispatchDecision(True, 'task-query', task_type)
             return DispatchDecision(False, 'non-task-intent', task_type)
 
@@ -98,11 +118,33 @@ class SidecarDispatcher:
             if result.status not in {'ok', 'degraded'}:
                 self.logger.warning('Sidecar non-ok status=%s trace_id=%s', result.status, trace_id)
                 return DispatchDecision(False, 'sidecar-non-ok', decision.task_type), None
+
+            # Phase C: Controlled automation - execute if allowed
+            if self.phase == 'assist' and self.tool_executor:
+                result.execution_allowed = self.tool_executor.can_execute(
+                    tool_name='sidecar_dispatch',
+                    risk=result.risk_level,
+                    requires_approval=result.requires_approval
+                )
+                if result.execution_allowed:
+                    exec_result = self.tool_executor.execute(
+                        tool_name='sidecar_dispatch',
+                        action='sidecar_dispatch',
+                        risk=result.risk_level,
+                        requires_approval=result.requires_approval,
+                        context={'audit_ref': result.audit_ref, 'sidecar_result': result},
+                        audit_ref=result.audit_ref
+                    )
+                    result.execution_result = exec_result
+                    self.logger.info('Sidecar execution completed success=%s audit_ref=%s',
+                                   exec_result.success, result.audit_ref)
+
             self.logger.info(
-                'Sidecar success task_type=%s status=%s approval=%s audit_ref=%s',
+                'Sidecar success task_type=%s status=%s approval=%s execution_allowed=%s audit_ref=%s',
                 result.task_type,
                 result.status,
                 result.requires_approval,
+                result.execution_allowed,
                 result.audit_ref,
             )
             return decision, result
@@ -124,5 +166,12 @@ def format_sidecar_guidance(result: SidecarResult | None) -> str:
     ]
     for idx, item in enumerate(result.outputs, 1):
         lines.append(f'- 建議 {idx}：{item}')
-    lines.append('- 說明：目前僅提供建議，不會自動執行。')
+    if hasattr(result, 'execution_allowed') and result.execution_allowed:
+        lines.append('- 執行狀態：已自動執行')
+        if result.execution_result and result.execution_result.success:
+            lines.append(f'- 執行結果：{result.execution_result.output}')
+        elif result.execution_result:
+            lines.append(f'- 執行錯誤：{result.execution_result.error}')
+    else:
+        lines.append('- 說明：目前僅提供建議，不會自動執行。')
     return '\n'.join(lines)

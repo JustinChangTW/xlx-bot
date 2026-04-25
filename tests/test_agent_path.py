@@ -1,5 +1,6 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from xlxbot.agent import classify_intent, dispatch_task, run_action
@@ -9,11 +10,30 @@ from xlxbot.logging_setup import setup_logging
 from xlxbot.policy_engine import PolicyEngine
 from xlxbot.router import ask_ai
 from xlxbot.runtime import RuntimeState
+from xlxbot.sidecar.schemas import SidecarResult
 from xlxbot.tool_registry import load_tool_registry
 
 
 class _NoopProviders:
-    pass
+    def is_provider_available(self, _provider_name):
+        return False
+
+
+class _FakeDispatcher:
+    def dispatch(self, user_input, intent, context=None):
+        _ = (user_input, intent, context)
+        return (
+            SimpleNamespace(should_call_sidecar=True, reason='task-query', task_type='suggest'),
+            SidecarResult(
+                status='ok',
+                task_type='suggest',
+                confidence=0.9,
+                outputs=['先整理範圍', '再人工確認'],
+                risk_level='medium',
+                requires_approval=True,
+                audit_ref='audit-1',
+            ),
+        )
 
 
 class AgentPathTestCase(unittest.TestCase):
@@ -98,6 +118,36 @@ class AgentPathTestCase(unittest.TestCase):
         self.assertIn('高風險行為', response)
         self.assertIsNotNone(state.last_tool_decision)
         self.assertFalse(state.last_tool_decision.get('allowed'))
+
+    def test_sidecar_command_returns_guidance_in_suggest_phase(self):
+        with patch.dict(
+            os.environ,
+            {
+                'SIDECAR_ENABLED': 'true',
+                'OPENCLAW_PHASE': 'suggest',
+            },
+            clear=False,
+        ):
+            config = AppConfig.from_env()
+        state = RuntimeState()
+
+        response = ask_ai(
+            config=config,
+            state=state,
+            logger=self.logger,
+            providers=_NoopProviders(),
+            user_input='請幫我規劃這個專案的重構方案',
+            history=[],
+            dispatcher=_FakeDispatcher(),
+            tool_registry=load_tool_registry(),
+            policy_engine=PolicyEngine(),
+            approval_gate=ApprovalGate(),
+        )
+
+        self.assertIn('Sidecar 任務建議', response)
+        self.assertIn('先整理範圍', response)
+        self.assertIsNotNone(state.last_sidecar_decision)
+        self.assertEqual(state.last_sidecar_decision.get('phase'), 'suggest')
 
 
 if __name__ == '__main__':
