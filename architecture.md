@@ -81,7 +81,7 @@ flowchart TD
 dispatcher 採用 **local-first + OpenClaw verification + fail-safe fallback**：
 
 - 事實查詢、公告查詢、現任名單、課程活動與問題分析都先查本地 `knowledge/`。
-- 本地知識不足、過期或只有待補標記時，必須透過 OpenClaw 查詢已核可官方來源，例如官網首頁 `https://tmc1974.com/`、課表 `https://tmc1974.com/schedule/`、當期幹部 `https://tmc1974.com/leaders/`、理事會 `https://tmc1974.com/board-members/`、Instagram `https://www.instagram.com/taipeitoastmasters/`、YouTube `https://www.youtube.com/user/1974toastmaster`、Flickr 相簿 `https://www.flickr.com/photos/133676498@N06/albums/`、公告與課程分類頁。
+- 本地知識不足、過期或只有待補標記時，必須透過 OpenClaw 查詢已核可官方來源，例如官網首頁 `https://tmc1974.com/`、課表 `https://tmc1974.com/schedule/`、歷任理事長及社長 `https://tmc1974.com/presidents/`、當期幹部 `https://tmc1974.com/leaders/`、理事會 `https://tmc1974.com/board-members/`、Instagram `https://www.instagram.com/taipeitoastmasters/`、YouTube `https://www.youtube.com/@1974toastmaster/videos`、Facebook `https://www.facebook.com/tmc1974`、Flickr 相簿 `https://www.flickr.com/photos/133676498@N06/albums/`、公告與課程分類頁。
 - OpenClaw 查核結果必須帶來源與查核狀態；不得只把模型推測當成事實。
 - sidecar timeout / exception / invalid response 時，必須回到保守回答路徑，說明本地與官方查核都不足或目前查核服務不可用。
 - sidecar 不可攔截或阻塞 webhook ACK 與 LINE reply 基本流程。

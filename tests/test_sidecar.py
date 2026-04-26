@@ -70,6 +70,52 @@ class SidecarTestCase(unittest.TestCase):
         self.assertEqual(decision.task_type, 'lookup')
         self.assertIsNotNone(result)
 
+    def test_dispatch_org_query_with_official_url_calls_sidecar(self):
+        expected = SidecarResult(
+            status='ok',
+            task_type='lookup',
+            confidence=0.84,
+            outputs=['根據 https://tmc1974.com/presidents/ 整理歷任理事長及社長。'],
+            risk_level='low',
+            requires_approval=False,
+            audit_ref='official-url',
+        )
+        dispatcher = SidecarDispatcher(self.logger, gateway=DummyGateway(result=expected))
+
+        decision, result = dispatcher.dispatch(
+            '少了去看歷任理事長及社長頁面 https://tmc1974.com/presidents/',
+            'ORG_QUERY',
+            context={'needs_official_lookup': True},
+        )
+
+        self.assertTrue(decision.should_call_sidecar)
+        self.assertEqual(decision.reason, 'official-lookup')
+        self.assertEqual(decision.task_type, 'lookup')
+        self.assertEqual(result.audit_ref, 'official-url')
+
+    def test_dispatch_social_official_url_calls_sidecar(self):
+        expected = SidecarResult(
+            status='ok',
+            task_type='lookup',
+            confidence=0.84,
+            outputs=['根據 https://www.facebook.com/tmc1974 整理官方社群公告。'],
+            risk_level='low',
+            requires_approval=False,
+            audit_ref='official-social-url',
+        )
+        dispatcher = SidecarDispatcher(self.logger, gateway=DummyGateway(result=expected))
+
+        decision, result = dispatcher.dispatch(
+            '請查官方臉書 https://www.facebook.com/tmc1974',
+            'ANNOUNCEMENT_QUERY',
+            context={},
+        )
+
+        self.assertTrue(decision.should_call_sidecar)
+        self.assertEqual(decision.reason, 'official-lookup')
+        self.assertEqual(decision.task_type, 'lookup')
+        self.assertEqual(result.audit_ref, 'official-social-url')
+
     def test_dispatch_task_query_calls_gateway(self):
         expected = SidecarResult(
             status='ok',

@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from .gateway import MockGateway, OpenClawGateway
@@ -11,8 +12,20 @@ TASK_KEYWORDS = {
     'debug': ['debug', '除錯', '修復', '錯誤', '故障'],
     'project': ['專案', '任務', '重構', '整合'],
     'analyze': ['分析', '拆解', '判斷', '比對', '確認'],
-    'lookup': ['查詢', '查核', '官網', '來源', '最新', '現任', '本週', '本周', '下週', '下周', '課表', '幹部名單'],
+    'lookup': ['查詢', '查核', '官網', '來源', '最新', '現任', '本週', '本周', '下週', '下周', '課表', '幹部名單', '歷任', '資歷', 'presidents', 'tmc1974.com'],
 }
+
+OFFICIAL_URL_RE = re.compile(
+    r'https?://(?:'
+    r'(?:www\.)?tmc1974\.com/'
+    r'|www\.instagram\.com/taipeitoastmasters/?'
+    r'|www\.youtube\.com/@1974toastmaster(?:/videos)?'
+    r'|www\.youtube\.com/user/1974toastmaster'
+    r'|www\.facebook\.com/tmc1974/?'
+    r'|www\.flickr\.com/photos/133676498@N06/albums/?'
+    r')',
+    re.IGNORECASE,
+)
 
 FACT_FIRST_INTENTS = {
     'FACT_QUERY',
@@ -82,7 +95,10 @@ class SidecarDispatcher:
         context = context or {}
         task_type = self._infer_task_type(user_input)
         text = (user_input or '').lower()
+        has_official_url = bool(OFFICIAL_URL_RE.search(text))
         if not task_type and context.get('needs_official_lookup'):
+            task_type = 'lookup'
+        if not task_type and has_official_url:
             task_type = 'lookup'
         if not task_type:
             return DispatchDecision(False, 'non-task-query', '')
@@ -93,6 +109,9 @@ class SidecarDispatcher:
             return DispatchDecision(False, 'phase-observe', task_type)
 
         if intent in FACT_FIRST_INTENTS and task_type in {'lookup', 'analyze'}:
+            return DispatchDecision(True, 'official-lookup', task_type)
+
+        if task_type in {'lookup', 'analyze'} and (context.get('needs_official_lookup') or has_official_url):
             return DispatchDecision(True, 'official-lookup', task_type)
 
         if intent in {'RULE_QUERY', 'COURSE_QUERY', 'ORG_QUERY'}:

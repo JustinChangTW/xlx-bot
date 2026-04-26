@@ -18,6 +18,32 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
+APPROVED_OFFICIAL_HOSTS = {
+    'tmc1974.com',
+    'www.tmc1974.com',
+    'instagram.com',
+    'www.instagram.com',
+    'youtube.com',
+    'www.youtube.com',
+    'facebook.com',
+    'www.facebook.com',
+    'flickr.com',
+    'www.flickr.com',
+}
+
+APPROVED_OFFICIAL_PATH_PREFIXES = {
+    'tmc1974.com': ('/',),
+    'www.tmc1974.com': ('/',),
+    'instagram.com': ('/taipeitoastmasters/', '/taipeitoastmasters'),
+    'www.instagram.com': ('/taipeitoastmasters/', '/taipeitoastmasters'),
+    'youtube.com': ('/@1974toastmaster', '/user/1974toastmaster'),
+    'www.youtube.com': ('/@1974toastmaster', '/user/1974toastmaster'),
+    'facebook.com': ('/tmc1974',),
+    'www.facebook.com': ('/tmc1974',),
+    'flickr.com': ('/photos/133676498@N06/',),
+    'www.flickr.com': ('/photos/133676498@N06/',),
+}
+
 
 def check_ollama_service(config, logger):
     try:
@@ -302,18 +328,50 @@ class ProviderService:
         keywords = ['公告', '最新消息', '會外會', '戶外活動', '活動', '宣傳', '社務布達', '文宣']
         return any(keyword in text for keyword in keywords)
 
+    def _is_approved_official_url(self, url):
+        parsed = urlparse(url or '')
+        host = parsed.netloc.lower()
+        if host not in APPROVED_OFFICIAL_HOSTS:
+            return False
+        prefixes = APPROVED_OFFICIAL_PATH_PREFIXES.get(host, ())
+        return any((parsed.path or '/').startswith(prefix) for prefix in prefixes)
+
+    def _normalize_official_url(self, raw_url):
+        parsed = urlparse((raw_url or '').strip().rstrip('.,，。;；'))
+        if not parsed.netloc:
+            return ''
+        host = parsed.netloc.lower()
+        scheme = parsed.scheme or 'https'
+        path = parsed.path or '/'
+        normalized = urlunparse((scheme, host, path, '', '', ''))
+        if not self._is_approved_official_url(normalized):
+            return ''
+        if host == 'www.tmc1974.com':
+            normalized = normalized.replace('https://www.tmc1974.com', 'https://tmc1974.com', 1)
+        return normalized
+
     def _is_official_site_query(self, user_input):
         text = (user_input or '').lower()
+        if self._extract_official_urls_from_input(user_input):
+            return True
         keywords = [
             '社團', '社團簡介', '健言', '小龍蝦', '理事長', '理監事', '高級幹部', '幹部', '社長', '副社長', '組長', '負責人', '講師', '講員', '辯論',
-            '活動', '公告', '照片', '相簿', '影片', '影音', '官網', 'leaders', 'board', 'lecturer',
-            'debate', 'events', 'photos', 'videos', 'rules'
+            '歷任', '資歷', '活動', '公告', '照片', '相簿', '影片', '影音', '官網', 'leaders', 'board', 'lecturer',
+            'presidents', 'debate', 'events', 'photos', 'videos', 'rules', 'instagram', 'facebook', 'youtube', 'flickr', 'ig', 'fb'
         ]
         return any(keyword in text for keyword in keywords)
 
+    def _extract_official_urls_from_input(self, user_input):
+        urls = []
+        for raw_url in re.findall(r'https?://[^\s)）]+', user_input or ''):
+            normalized = self._normalize_official_url(raw_url)
+            if normalized not in urls:
+                urls.append(normalized)
+        return urls
+
     def _get_official_site_targets(self, user_input, intent):
         text = (user_input or '').lower()
-        targets = []
+        targets = self._extract_official_urls_from_input(user_input)
 
         def add(url):
             if url not in targets:
@@ -342,6 +400,8 @@ class ProviderService:
         if any(keyword in text for keyword in ['社團簡介', 'rules', '高級幹部']):
             add('https://tmc1974.com/rules/')
 
+        if any(keyword in text for keyword in ['歷任', '資歷', 'presidents']):
+            add('https://tmc1974.com/presidents/')
         if any(keyword in text for keyword in ['理事長', '理監事', 'board', '董事', '監事']):
             add('https://tmc1974.com/board-members/')
         if any(keyword in text for keyword in ['幹部', '領導', 'leaders', '社長', '副社長', '組長', '負責人']):
@@ -357,7 +417,9 @@ class ProviderService:
             add('https://www.flickr.com/photos/133676498@N06/albums/')
         if any(keyword in text for keyword in ['影片', '影音', 'video', 'videos']):
             add('https://tmc1974.com/category/videos/')
-            add('https://www.youtube.com/user/1974toastmaster')
+            add('https://www.youtube.com/@1974toastmaster/videos')
+        if any(keyword in text for keyword in ['facebook', 'fb', '臉書', '社群', '貼文', '文宣', '公告', '宣傳']):
+            add('https://www.facebook.com/tmc1974')
         if any(keyword in text for keyword in ['instagram', 'ig', '社群', '貼文', '文宣', '公告', '宣傳']):
             add('https://www.instagram.com/taipeitoastmasters/')
 
@@ -367,6 +429,7 @@ class ProviderService:
             add('https://tmc1974.com/leaders/')
         elif intent == 'ORG_QUERY':
             add('https://tmc1974.com/rules/')
+            add('https://tmc1974.com/presidents/')
             add('https://tmc1974.com/leaders/')
             add('https://tmc1974.com/board-members/')
         elif intent == 'ACTIVITY_QUERY':
@@ -374,10 +437,13 @@ class ProviderService:
             add('https://tmc1974.com/category/photos/')
             add('https://tmc1974.com/category/videos/')
             add('https://www.instagram.com/taipeitoastmasters/')
+            add('https://www.facebook.com/tmc1974')
+            add('https://www.youtube.com/@1974toastmaster/videos')
             add('https://www.flickr.com/photos/133676498@N06/albums/')
         elif intent == 'ANNOUNCEMENT_QUERY':
             add('https://tmc1974.com/category/events/')
             add('https://www.instagram.com/taipeitoastmasters/')
+            add('https://www.facebook.com/tmc1974')
         elif intent == 'COURSE_QUERY':
             add('https://tmc1974.com/lecturer/')
             add('https://tmc1974.com/debate/')
@@ -390,7 +456,7 @@ class ProviderService:
             add('https://tmc1974.com/leaders/')
             add('https://tmc1974.com/board-members/')
 
-        return targets[:6]
+        return targets[:8]
 
     def _clean_text_line(self, text):
         cleaned = re.sub(r'\s+', ' ', (text or '')).strip()
@@ -400,51 +466,301 @@ class ProviderService:
             return ''
         return cleaned
 
-    def _extract_page_summary(self, url):
+    def _parse_chinese_number(self, value):
+        text = re.sub(r'[^零〇一二三四五六七八九十百\d]', '', value or '')
+        if not text:
+            return None
+        if text.isdigit():
+            return int(text)
+
+        digits = {'零': 0, '〇': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+        if text and all(char in digits for char in text):
+            return int(''.join(str(digits[char]) for char in text))
+
+        total = 0
+        current = 0
+        units = {'十': 10, '百': 100}
+        for char in text:
+            if char in digits:
+                current = digits[char]
+                continue
+            if char in units:
+                total += (current or 1) * units[char]
+                current = 0
+        return total + current if total or current else None
+
+    def _extract_sequence_number(self, value):
+        match = re.search(r'第\s*([零〇一二三四五六七八九十百\d]+)\s*[屆期]', value or '')
+        if not match:
+            return None
+        return self._parse_chinese_number(match.group(1))
+
+    def _extract_requested_sequence_numbers(self, user_input, unit=None):
+        numbers = set()
+        unit_pattern = re.escape(unit) if unit else r'[屆期]'
+        pattern = rf'第\s*([零〇一二三四五六七八九十百\d]+)\s*{unit_pattern}'
+        for raw in re.findall(pattern, user_input or ''):
+            parsed = self._parse_chinese_number(raw)
+            if parsed is not None:
+                numbers.add(parsed)
+        return numbers
+
+    def _extract_table_rows(self, table):
+        rows = []
+        for tr in table.find_all('tr'):
+            cells = [self._clean_text_line(cell.get_text(' ', strip=True)) for cell in tr.find_all(['th', 'td'])]
+            cells = [cell for cell in cells if cell]
+            if cells:
+                rows.append(cells)
+        return rows
+
+    def _format_presidents_rows(self, title, rows, user_input, default_limit):
+        if not rows:
+            return []
+
+        header = rows[0]
+        data_rows = rows[1:]
+        sequence_unit = '屆' if header and '屆' in header[0] else '期' if header and '期' in header[0] else None
+        if sequence_unit == '屆' and re.search(r'第\s*[零〇一二三四五六七八九十百\d]+\s*期', user_input or ''):
+            return []
+        if sequence_unit == '期' and re.search(r'第\s*[零〇一二三四五六七八九十百\d]+\s*屆', user_input or ''):
+            return []
+        requested_numbers = self._extract_requested_sequence_numbers(user_input, unit=sequence_unit)
+        text = user_input or ''
+        matched_rows = []
+
+        for row in data_rows:
+            sequence_number = self._extract_sequence_number(row[0] if row else '')
+            if requested_numbers and sequence_number in requested_numbers:
+                matched_rows.append(row)
+            elif not requested_numbers and any(cell and cell in text for cell in row[1:2]):
+                matched_rows.append(row)
+            elif not requested_numbers and any(keyword in text for keyword in ['目前', '現在', '現任', '最新']) and row == data_rows[0]:
+                matched_rows.append(row)
+
+        selected_rows = matched_rows or data_rows[:default_limit]
+        lines = [f'- {title}：']
+        if matched_rows:
+            lines.append('  - 符合問題的官網表格列：')
+        else:
+            lines.append(f'  - 官網表格前 {min(default_limit, len(data_rows))} 筆：')
+
+        for row in selected_rows:
+            pairs = []
+            for idx, cell in enumerate(row):
+                label = header[idx] if idx < len(header) else f'欄位{idx + 1}'
+                pairs.append(f'{label}：{cell}')
+            lines.append(f'  - {"；".join(pairs)}')
+        return lines
+
+    def _extract_presidents_page_summary(self, soup, url, user_input=''):
+        container = soup.find('main') or soup.find('article') or soup.find('body')
+        if container is None:
+            return None
+
+        title = self._clean_text_line(soup.title.get_text(' ', strip=True) if soup.title else '')
+        summary_parts = [f'根據台北市健言社官方來源（{url}）整理：']
+        if title:
+            summary_parts.append(f'- 頁面標題：{title}')
+
+        intro_lines = []
+        for element in container.find_all(['h1', 'h2', 'h3', 'p'], limit=30):
+            text = self._clean_text_line(element.get_text(' ', strip=True))
+            if text and len(text) >= 4 and text not in intro_lines:
+                intro_lines.append(text)
+            if len(intro_lines) >= 4:
+                break
+        summary_parts.extend(f'- {line}' for line in intro_lines)
+
+        tables = container.find_all('table')
+        table_summaries = []
+        for table in tables:
+            rows = self._extract_table_rows(table)
+            if not rows:
+                continue
+            header_text = ' '.join(rows[0])
+            if '屆別' in header_text and '理事長' in header_text:
+                table_summaries.extend(self._format_presidents_rows('歷任理事長表', rows, user_input, default_limit=12))
+            elif '期別' in header_text and '社長' in header_text:
+                table_summaries.extend(self._format_presidents_rows('歷任社長表', rows, user_input, default_limit=20))
+
+        if table_summaries:
+            summary_parts.append('- 官網表格解析：')
+            summary_parts.extend(table_summaries)
+        return '\n'.join(summary_parts)
+
+    def _append_unique_line(self, lines, seen, text, min_length=4):
+        cleaned = self._clean_text_line(text)
+        if not cleaned or len(cleaned) < min_length:
+            return
+        normalized = cleaned.lower()
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        lines.append(cleaned)
+
+    def _extract_meta_description(self, soup):
+        for selector in (
+            {'name': 'description'},
+            {'property': 'og:description'},
+            {'name': 'twitter:description'},
+        ):
+            tag = soup.find('meta', attrs=selector)
+            if tag and tag.get('content'):
+                return self._clean_text_line(tag.get('content'))
+        return ''
+
+    def _extract_generic_table_summaries(self, container, max_tables=4, max_rows_per_table=8):
+        summaries = []
+        for index, table in enumerate(container.find_all('table'), 1):
+            rows = self._extract_table_rows(table)
+            if len(rows) < 2:
+                continue
+            header = rows[0]
+            summaries.append(f'- 表格 {index}：')
+            for row in rows[1:max_rows_per_table + 1]:
+                pairs = []
+                for idx, cell in enumerate(row):
+                    label = header[idx] if idx < len(header) else f'欄位{idx + 1}'
+                    pairs.append(f'{label}：{cell}')
+                summaries.append(f'  - {"；".join(pairs)}')
+            if len(summaries) >= max_tables * (max_rows_per_table + 1):
+                break
+        return summaries
+
+    def _extract_article_card_summaries(self, container, base_url, max_cards=8):
+        cards = []
+        seen = set()
+        selectors = [
+            'article',
+            '.elementor-post',
+            '.elementor-posts-container .elementor-post',
+            '.post',
+            '.type-post',
+        ]
+        elements = []
+        for selector in selectors:
+            for element in container.select(selector):
+                if element not in elements:
+                    elements.append(element)
+
+        for element in elements:
+            title_el = (
+                element.find(['h1', 'h2', 'h3', 'h4'])
+                or element.select_one('.elementor-post__title')
+                or element.select_one('.entry-title')
+            )
+            title = self._clean_text_line(title_el.get_text(' ', strip=True) if title_el else '')
+            date_el = (
+                element.find('time')
+                or element.select_one('.elementor-post-date')
+                or element.select_one('.published')
+            )
+            date_text = self._clean_text_line(date_el.get_text(' ', strip=True) if date_el else '')
+            excerpt_el = element.select_one('.elementor-post__excerpt, .entry-summary, .excerpt')
+            excerpt = self._clean_text_line(excerpt_el.get_text(' ', strip=True) if excerpt_el else '')
+            link_el = element.find('a', href=True)
+            href = urljoin(base_url, link_el['href']) if link_el else ''
+            if href and not self._is_approved_official_url(href):
+                href = ''
+            if not title:
+                continue
+            key = (title, href)
+            if key in seen:
+                continue
+            seen.add(key)
+            parts = [title]
+            if date_text:
+                parts.append(f'日期：{date_text}')
+            if excerpt:
+                parts.append(f'摘要：{excerpt}')
+            if href:
+                parts.append(f'連結：{href}')
+            cards.append('- ' + '；'.join(parts))
+            if len(cards) >= max_cards:
+                break
+        return cards
+
+    def _extract_image_text_summaries(self, container, base_url, max_images=8):
+        summaries = []
+        seen = set()
+        for image in container.find_all('img', limit=80):
+            text = self._clean_text_line(image.get('alt') or image.get('title') or '')
+            if not text or text.lower() in seen:
+                continue
+            seen.add(text.lower())
+            src = urljoin(base_url, image.get('src') or '')
+            if src and self._is_approved_official_url(src):
+                summaries.append(f'- {text}: {src}')
+            else:
+                summaries.append(f'- {text}')
+            if len(summaries) >= max_images:
+                break
+        return summaries
+
+    def _extract_official_links(self, container, base_url, max_links=10):
+        links = []
+        seen = set()
+        for anchor in container.find_all('a', href=True, limit=100):
+            href = urljoin(base_url, anchor['href'])
+            text = self._clean_text_line(anchor.get_text(' ', strip=True))
+            if not text or href in seen or not self._is_approved_official_url(href):
+                continue
+            seen.add(href)
+            links.append(f'- {text}: {href}')
+            if len(links) >= max_links:
+                break
+        return links
+
+    def _extract_page_summary(self, url, user_input='', intent=''):
         response = requests.get(url, timeout=10, headers=self._build_browser_headers())
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'lxml')
+        if urlparse(url).path.rstrip('/') == '/presidents':
+            presidents_summary = self._extract_presidents_page_summary(soup, url, user_input=user_input)
+            if presidents_summary:
+                return presidents_summary
+
         container = soup.find('main') or soup.find('article') or soup.find('body')
         if container is None:
             self.logger.warning('Could not find readable content container on %s', url)
             return None
 
+        title = self._clean_text_line(soup.title.get_text(' ', strip=True) if soup.title else '')
+        meta_description = self._extract_meta_description(soup)
+        summary_parts = [f'根據台北市健言社官方來源（{url}）整理：']
+        if title:
+            summary_parts.append(f'- 頁面標題：{title}')
+        if meta_description:
+            summary_parts.append(f'- 頁面描述：{meta_description}')
+
         lines = []
         seen = set()
-        for element in container.find_all(['h1', 'h2', 'h3', 'p', 'li'], limit=80):
-            text = self._clean_text_line(element.get_text(' ', strip=True))
-            if not text or len(text) < 4:
-                continue
-            normalized = text.lower()
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            lines.append(text)
+        for element in container.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'li', 'figcaption'], limit=120):
+            self._append_unique_line(lines, seen, element.get_text(' ', strip=True))
             if len(lines) >= 10:
                 break
 
-        links = []
-        seen_links = set()
-        for anchor in container.find_all('a', href=True, limit=40):
-            href = urljoin(url, anchor['href'])
-            text = self._clean_text_line(anchor.get_text(' ', strip=True))
-            if not text or href in seen_links or not href.startswith('https://tmc1974.com/'):
-                continue
-            seen_links.add(href)
-            links.append(f'- {text}: {href}')
-            if len(links) >= 5:
-                break
+        article_cards = self._extract_article_card_summaries(container, url)
+        table_summaries = self._extract_generic_table_summaries(container)
+        image_summaries = self._extract_image_text_summaries(container, url)
+        links = self._extract_official_links(container, url)
 
-        if not lines and not links:
+        if not any([lines, article_cards, table_summaries, image_summaries, links]):
             self.logger.warning('Found page %s but could not extract summary lines', url)
             return None
 
-        title = self._clean_text_line(soup.title.get_text(' ', strip=True) if soup.title else '')
-        summary_parts = [f'根據台北市健言社官網頁面（{url}）整理：']
-        if title:
-            summary_parts.append(f'- 頁面標題：{title}')
         summary_parts.extend(f'- {line}' for line in lines[:8])
+        if article_cards:
+            summary_parts.append('- 文章 / 卡片摘要：')
+            summary_parts.extend(article_cards)
+        if table_summaries:
+            summary_parts.append('- 表格摘要：')
+            summary_parts.extend(table_summaries)
+        if image_summaries:
+            summary_parts.append('- 圖片文字：')
+            summary_parts.extend(image_summaries)
         if links:
             summary_parts.append('- 相關連結：')
             summary_parts.extend(links)
@@ -464,7 +780,7 @@ class ProviderService:
         summaries = []
         for url in targets:
             try:
-                summary = self._extract_page_summary(url)
+                summary = self._extract_page_summary(url, user_input=user_input, intent=intent)
                 if summary:
                     summaries.append(summary)
             except requests.RequestException as e:
@@ -474,7 +790,7 @@ class ProviderService:
 
         if not summaries:
             return None
-        return '\n\n'.join(summaries[:3])
+        return '\n\n'.join(summaries[:5])
 
     def _next_weekday(self, current_date, weekday):
         days_ahead = (weekday - current_date.weekday()) % 7

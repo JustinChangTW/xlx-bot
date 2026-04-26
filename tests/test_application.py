@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+from bs4 import BeautifulSoup
 from flask import Flask
 from xlxbot.application import BotApplication
 from xlxbot.config import AppConfig
@@ -105,10 +106,130 @@ class ApplicationTestCase(unittest.TestCase):
         photo_targets = providers._get_official_site_targets('請找活動照片與相簿', 'ACTIVITY_QUERY')
         video_targets = providers._get_official_site_targets('請找官方影片影音', 'ACTIVITY_QUERY')
         announcement_targets = providers._get_official_site_targets('最新公告文宣', 'ANNOUNCEMENT_QUERY')
+        presidents_targets = providers._get_official_site_targets('理事長在健言社的資歷 https://tmc1974.com/presidents/', 'ORG_QUERY')
+        social_urls = providers._extract_official_urls_from_input(
+            '官方來源 https://www.instagram.com/taipeitoastmasters/ '
+            'https://www.youtube.com/@1974toastmaster/videos '
+            'https://www.facebook.com/tmc1974 '
+            'https://www.flickr.com/photos/133676498@N06/albums/ '
+            'https://example.com/not-official'
+        )
 
         self.assertIn('https://www.flickr.com/photos/133676498@N06/albums/', photo_targets)
-        self.assertIn('https://www.youtube.com/user/1974toastmaster', video_targets)
+        self.assertIn('https://www.youtube.com/@1974toastmaster/videos', video_targets)
         self.assertIn('https://www.instagram.com/taipeitoastmasters/', announcement_targets)
+        self.assertIn('https://www.facebook.com/tmc1974', announcement_targets)
+        self.assertEqual(presidents_targets[0], 'https://tmc1974.com/presidents/')
+        self.assertIn('https://www.instagram.com/taipeitoastmasters/', social_urls)
+        self.assertIn('https://www.youtube.com/@1974toastmaster/videos', social_urls)
+        self.assertIn('https://www.facebook.com/tmc1974', social_urls)
+        self.assertIn('https://www.flickr.com/photos/133676498@N06/albums/', social_urls)
+        self.assertNotIn('https://example.com/not-official', social_urls)
+
+    def test_presidents_page_summary_extracts_requested_chairperson_row(self):
+        providers = ProviderService(SimpleNamespace(gemini_api_key=''), SimpleNamespace(), self.logger)
+        soup = BeautifulSoup(
+            '''
+            <html><head><title>歷任理事長及社長 - 台北市健言社</title></head><body><main>
+              <h1>歷任理事長及社長</h1>
+              <table>
+                <tr><th>屆別</th><th>理事長</th></tr>
+                <tr><td>第十六屆</td><td>梁慈珊</td></tr>
+                <tr><td>第十五屆</td><td>丘建賢</td></tr>
+              </table>
+              <table>
+                <tr><th>期別</th><th>社長</th><th>社務發展簡介</th></tr>
+                <tr><td>第十六期</td><td>王世南</td><td>社刊發起人</td></tr>
+                <tr><td>第一五八期</td><td>吳耿豪</td><td></td></tr>
+              </table>
+            </main></body></html>
+            ''',
+            'lxml',
+        )
+
+        summary = providers._extract_presidents_page_summary(
+            soup,
+            'https://tmc1974.com/presidents/',
+            user_input='第十六屆理事長是誰？',
+        )
+
+        self.assertIn('歷任理事長表', summary)
+        self.assertIn('符合問題的官網表格列', summary)
+        self.assertIn('屆別：第十六屆；理事長：梁慈珊', summary)
+        self.assertNotIn('理事長：丘建賢', summary)
+        self.assertNotIn('社長：王世南', summary)
+
+    def test_presidents_page_summary_extracts_requested_president_term_row(self):
+        providers = ProviderService(SimpleNamespace(gemini_api_key=''), SimpleNamespace(), self.logger)
+        soup = BeautifulSoup(
+            '''
+            <html><head><title>歷任理事長及社長 - 台北市健言社</title></head><body><main>
+              <h1>歷任社長</h1>
+              <table>
+                <tr><th>期別</th><th>社長</th><th>社務發展簡介</th></tr>
+                <tr><td>第一五八期</td><td>吳耿豪</td><td></td></tr>
+                <tr><td>第一五七期</td><td>高力翔</td><td>產業升級社長</td></tr>
+              </table>
+            </main></body></html>
+            ''',
+            'lxml',
+        )
+
+        summary = providers._extract_presidents_page_summary(
+            soup,
+            'https://tmc1974.com/presidents/',
+            user_input='第158期社長是誰？',
+        )
+
+        self.assertIn('歷任社長表', summary)
+        self.assertIn('期別：第一五八期；社長：吳耿豪', summary)
+        self.assertNotIn('社長：高力翔', summary)
+
+    @patch('xlxbot.providers.requests.get')
+    def test_generic_official_page_summary_extracts_richer_page_signals(self, mock_get):
+        providers = ProviderService(SimpleNamespace(gemini_api_key=''), SimpleNamespace(), self.logger)
+
+        class FakeResponse:
+            content = '''
+            <html>
+              <head>
+                <title>最新公告 - 台北市健言社</title>
+                <meta name="description" content="官方公告與活動資訊">
+              </head>
+              <body><main>
+                <h1>最新公告</h1>
+                <article class="elementor-post">
+                  <h3 class="elementor-post__title"><a href="/events/speech-night/">第159期演講之夜</a></h3>
+                  <span class="elementor-post-date">2026-04-25</span>
+                  <div class="elementor-post__excerpt">歡迎關注本期活動安排。</div>
+                </article>
+                <table>
+                  <tr><th>日期</th><th>活動</th></tr>
+                  <tr><td>4/25</td><td>演講之夜</td></tr>
+                </table>
+                <figure>
+                  <img src="/wp-content/uploads/poster.jpg" alt="第159期演講之夜海報">
+                  <figcaption>官方海報</figcaption>
+                </figure>
+                <a href="/category/events/">更多活動</a>
+                <a href="https://example.com/not-official">外部連結</a>
+              </main></body>
+            </html>
+            '''.encode('utf-8')
+
+            def raise_for_status(self):
+                return None
+
+        mock_get.return_value = FakeResponse()
+
+        summary = providers._extract_page_summary('https://tmc1974.com/category/events/')
+
+        self.assertIn('頁面描述：官方公告與活動資訊', summary)
+        self.assertIn('第159期演講之夜；日期：2026-04-25；摘要：歡迎關注本期活動安排。；連結：https://tmc1974.com/events/speech-night/', summary)
+        self.assertIn('日期：4/25；活動：演講之夜', summary)
+        self.assertIn('第159期演講之夜海報: https://tmc1974.com/wp-content/uploads/poster.jpg', summary)
+        self.assertIn('更多活動: https://tmc1974.com/category/events/', summary)
+        self.assertNotIn('example.com', summary)
 
     def test_local_openclaw_gateway_health_exposes_runtime_parameters(self):
         app = BotApplication.__new__(BotApplication)

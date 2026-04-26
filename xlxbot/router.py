@@ -543,6 +543,39 @@ def openclaw_outputs_have_grounding(result):
     return bool(meaningful_lines)
 
 
+def compact_log_text(value, max_chars=900):
+    text = re.sub(r'\s+', ' ', str(value or '')).strip()
+    if len(text) <= max_chars:
+        return text
+    return f'{text[:max_chars]}...'
+
+
+def build_openclaw_reference_log_summary(result, max_outputs=3, max_output_chars=900):
+    if not result or not result.outputs:
+        return {
+            'audit_ref': '',
+            'task_type': '',
+            'confidence': 0.0,
+            'sources': [],
+            'outputs': [],
+        }
+
+    joined = '\n'.join(str(item) for item in result.outputs)
+    sources = sorted(set(re.findall(r'https?://[^\s)）]+', joined)))
+    outputs = [
+        compact_log_text(item, max_output_chars)
+        for item in result.outputs[:max_outputs]
+        if str(item).strip()
+    ]
+    return {
+        'audit_ref': result.audit_ref,
+        'task_type': result.task_type,
+        'confidence': result.confidence,
+        'sources': sources,
+        'outputs': outputs,
+    }
+
+
 def compact_knowledge_content(knowledge_content, max_sections=4, max_chars=3200):
     if not knowledge_content:
         return knowledge_content
@@ -664,7 +697,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         '6. 回答要像前輩老師：先幫對方釐清問題，再給穩健答案、提醒風險與下一步；不要空泛長篇。\n'
         '7. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 不足，改用 OpenClaw 查核結果，仍不足才回覆資料不足。\n'
         '8. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n'
-        '9. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
+        '9. 若使用者提供已核可官方連結或要求看官網 / 官方社群，必須使用本次 OpenClaw / 官方查核結果；禁止回答「我無法主動瀏覽、無法解讀連結、只能依本地知識」這類與系統能力相反的說法。\n'
+        '10. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
@@ -888,10 +922,12 @@ def ask_ai(
                         'approved_sources': [
                             'https://tmc1974.com/',
                             'https://tmc1974.com/schedule/',
+                            'https://tmc1974.com/presidents/',
                             'https://tmc1974.com/leaders/',
                             'https://tmc1974.com/board-members/',
                             'https://www.instagram.com/taipeitoastmasters/',
-                            'https://www.youtube.com/user/1974toastmaster',
+                            'https://www.youtube.com/@1974toastmaster/videos',
+                            'https://www.facebook.com/tmc1974',
                             'https://www.flickr.com/photos/133676498@N06/albums/',
                             'official announcements and course categories',
                         ],
@@ -919,6 +955,15 @@ def ask_ai(
                 logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
                 openclaw_guidance = build_openclaw_prompt_guidance(sidecar_result)
                 if openclaw_outputs_have_grounding(sidecar_result):
+                    reference_summary = build_openclaw_reference_log_summary(sidecar_result)
+                    logger.info(
+                        'AUDIT openclaw referenced audit_ref=%s task_type=%s confidence=%s sources=%s outputs=%s',
+                        reference_summary['audit_ref'],
+                        reference_summary['task_type'],
+                        reference_summary['confidence'],
+                        reference_summary['sources'],
+                        reference_summary['outputs'],
+                    )
                     scoped_knowledge += (
                         '\n\n--- 來自 OpenClaw 官方查核（pending review） ---\n'
                         + '\n'.join(f'- {item}' for item in sidecar_result.outputs)

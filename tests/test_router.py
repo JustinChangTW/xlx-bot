@@ -4,6 +4,7 @@ from xlxbot.router import (
     INTENT_FACT,
     INTENT_COURSE,
     INTENT_RULE,
+    build_openclaw_reference_log_summary,
     build_controlled_action_response,
     build_openclaw_prompt_guidance,
     classify_openclaw_task_type,
@@ -100,6 +101,29 @@ class RouterTestCase(unittest.TestCase):
         self.assertIn('本地知識確認事實', guidance)
         self.assertIn('OpenClaw 查核結果補足', guidance)
         self.assertIn('若只是建議草稿，僅可作為分析策略', guidance)
+
+    def test_openclaw_reference_log_summary_includes_sources_and_truncated_outputs(self):
+        summary = build_openclaw_reference_log_summary(
+            SidecarResult(
+                status='ok',
+                task_type='lookup',
+                confidence=0.84,
+                outputs=[
+                    '根據 https://tmc1974.com/leaders/ 整理：楊朝富 第159期社長。' + '補充' * 500,
+                    '根據 https://tmc1974.com/board-members/ 整理：梁慈珊 第十六屆理事長。',
+                ],
+                risk_level='low',
+                requires_approval=False,
+                audit_ref='audit-1',
+            ),
+            max_output_chars=80,
+        )
+
+        self.assertEqual(summary['audit_ref'], 'audit-1')
+        self.assertEqual(summary['task_type'], 'lookup')
+        self.assertIn('https://tmc1974.com/leaders/', summary['sources'])
+        self.assertIn('https://tmc1974.com/board-members/', summary['sources'])
+        self.assertTrue(summary['outputs'][0].endswith('...'))
 
     def test_request_tracker_allows_nested_step_transition(self):
         tracker = RequestStateTracker()

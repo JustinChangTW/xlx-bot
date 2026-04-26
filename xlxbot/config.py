@@ -167,7 +167,7 @@ class AppConfig:
                 item.strip()
                 for item in os.getenv(
                     'OPENCLAW_OFFICIAL_SOURCES',
-                    'https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/user/1974toastmaster,https://www.flickr.com/photos/133676498@N06/albums/'
+                    'https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/presidents/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/@1974toastmaster/videos,https://www.facebook.com/tmc1974,https://www.flickr.com/photos/133676498@N06/albums/'
                 ).split(',')
                 if item.strip()
             ],

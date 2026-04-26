@@ -92,7 +92,7 @@
 - `knowledge/` 與 `skills/` 建議用檔名前綴序號控制載入順序，例如 `10_...`、`20_...`、`30_...`。
 - `memory/` 與 `memory.md` 屬於記憶/維運資料，不直接當作正式社團事實回答來源。
 - `AGENTS.md`、`SOUL.md`、`USER.md` 與 `learned_knowledge.txt` 也屬於輔助資料，不直接進本地正式知識池。
-- 若本地知識不足，系統應透過 OpenClaw 查詢已核可官方來源，例如台北市健言社官網 `https://tmc1974.com/`、課表 `https://tmc1974.com/schedule/`、當期幹部 `https://tmc1974.com/leaders/`、理事會 `https://tmc1974.com/board-members/`、Instagram `https://www.instagram.com/taipeitoastmasters/`、YouTube `https://www.youtube.com/user/1974toastmaster`、Flickr 相簿 `https://www.flickr.com/photos/133676498@N06/albums/`、公告或課程分類頁；查詢結果必須帶來源並避免寫回正式知識庫，除非經人工審核。
+- 若本地知識不足，系統應透過 OpenClaw 查詢已核可官方來源，例如台北市健言社官網 `https://tmc1974.com/`、課表 `https://tmc1974.com/schedule/`、歷任理事長及社長 `https://tmc1974.com/presidents/`、當期幹部 `https://tmc1974.com/leaders/`、理事會 `https://tmc1974.com/board-members/`、Instagram `https://www.instagram.com/taipeitoastmasters/`、YouTube `https://www.youtube.com/@1974toastmaster/videos`、Facebook `https://www.facebook.com/tmc1974`、Flickr 相簿 `https://www.flickr.com/photos/133676498@N06/albums/`、公告或課程分類頁；查詢結果必須帶來源並避免寫回正式知識庫，除非經人工審核。
 
 ## 目前回答流程
 
@@ -244,7 +244,7 @@ OPENCLAW_CONFIDENCE_OK=0.84
 OPENCLAW_CONFIDENCE_DEGRADED=0.2
 OPENCLAW_AUDIT_ENABLED=true
 OPENCLAW_LEARNING_ENABLED=true
-OPENCLAW_OFFICIAL_SOURCES=https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/user/1974toastmaster,https://www.flickr.com/photos/133676498@N06/albums/
+OPENCLAW_OFFICIAL_SOURCES=https://tmc1974.com/,https://tmc1974.com/schedule/,https://tmc1974.com/presidents/,https://tmc1974.com/leaders/,https://tmc1974.com/board-members/,https://www.instagram.com/taipeitoastmasters/,https://www.youtube.com/@1974toastmaster/videos,https://www.facebook.com/tmc1974,https://www.flickr.com/photos/133676498@N06/albums/
 OFFICIAL_SITE_RETRIEVAL_ENABLED=true
 ```
 > 注意：不要把 `.env` 公開到版本控制系統中。
