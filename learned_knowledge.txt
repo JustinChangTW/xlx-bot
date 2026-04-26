@@ -20,3 +20,257 @@
 - [PENDING_REVIEW] 2026-04-25 16:52 source=openclaw:mock-1dca1c4cbe2f user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=回答時保留來源；若查不到可信資料，明確說明本地與官方查核都不足。
 - [PENDING_REVIEW] 2026-04-25 16:52 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=梁慈珊為台北市健言社第十六屆理事長；簡藝雯為台北市健言社第十六屆總幹事；https://tmc1974.com/board-members/；2026-04-25
 - [PENDING_REVIEW] 2026-04-25 16:54 source=openclaw:5dfd9e3a1c8a4823b61aaa96100233f5 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-26 09:40 source=openclaw:dce11bb6efc4400a8782a9f100b4e89a user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-26 09:40 source=openclaw:07761963277c40f1bf60112dfc221371 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- [PENDING_REVIEW] 2026-04-26 09:43 source=openclaw:0264ff9baf6b4d7eb9292758accf144f user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+
+根據台北市健言社官網頁面（https://tmc1974.com/board-members/）整理：
+- 頁面標題：理事會 - 台北市健言社
+- 第十六屆理監事會Board Committees
+- 梁慈珊 第十六屆理事長
+- 簡藝雯 第十六屆總幹事
+- 常務理事
+- 郭佳興 教育訓練委員會
+- 傅瑩貞 教育訓練委員會
+- 張雅淳 公關社拓委員會
+- 高宇勤 文書史料委員會
+- [PENDING_REVIEW] 2026-04-26 09:44 source=openclaw:887df523d5c64ec29cc2b2d3b56da839 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+
+根據台北市健言社官網頁面（https://tmc1974.com/leaders/）整理：
+- 頁面標題：當期幹部 - 台北市健言社
+- 第159期幹部Club Leaders
+- 楊朝富 第159期社長
+- 教育副社長
+- 執行副社長
+- 輔導社長
+- 吳耿豪 第158期社長
+- 教育組長
+- 活動組長
+
+根據台北市健言社官網頁面（https://tmc1974.com/rules/）整理：
+- 頁面標題：緣起 - 台北市健言社
+- 台北市健言社成立的目的為服務社會青年，提供進修機會，同登學習、服務、領導領域。課程內容包含上台演講訓練、奧瑞岡辯論能力訓練、講師培訓，尤以每四個月為一期的會內會課程為主要訓練課程，採用美國TOAST MASTERS 訓練法，並廣邀名師舉辦各類成長課程，期使每位社友在工作忙碌之餘，也能享受成長的喜悅，以創造豐富的人生。
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- [PENDING_REVIEW] 2026-04-26 09:44 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=楊朝富；第159期社長；台北市健言社官網(https://tmc1974.com/leaders/)；2026-04-26
+- [PENDING_REVIEW] 2026-04-26 09:45 source=openclaw:71e047af2e884117954104d164c31c14 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+
+根據台北市健言社官網頁面（https://tmc1974.com/board-members/）整理：
+- 頁面標題：理事會 - 台北市健言社
+- 第十六屆理監事會Board Committees
+- 梁慈珊 第十六屆理事長
+- 簡藝雯 第十六屆總幹事
+- 常務理事
+- 郭佳興 教育訓練委員會
+- 傅瑩貞 教育訓練委員會
+- 張雅淳 公關社拓委員會
+- 高宇勤 文書史料委員會
+
+根據台北市健言社官網頁面（https://tmc1974.com/rules/）整理：
+- 頁面標題：緣起 - 台北市健言社
+- 台北市健言社成立的目的為服務社會青年，提供進修機會，同登學習、服務、領導領域。課程內容包含上台演講訓練、奧瑞岡辯論能力訓練、講師培訓，尤以每四個月為一期的會內會課程為主要訓練課程，採用美國TOAST MASTERS 訓練法，並廣邀名師舉辦各類成長課程，期使每位社友在工作忙碌之餘，也能享受成長的喜悅，以創造豐富的人生。
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- [PENDING_REVIEW] 2026-04-26 09:45 source=openclaw:8385712b963f4fb29b52b80dcc592dd0 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- [PENDING_REVIEW] 2026-04-26 09:51 source=openclaw:47e360f87236454f95f6e563c33d0e4c user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+
+根據台北市健言社官網頁面（https://tmc1974.com/lecturer/）整理：
+- 頁面標題：講師班 - 台北市健言社
+- 講師培訓課程 Lecturer Training Course
+- 台北市健言社第十五屆講師培訓認證班
+- [PENDING_REVIEW] 2026-04-26 09:53 source=openclaw:cd53d45a385d4ed39c6aeec4fd05aac6 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- [PENDING_REVIEW] 2026-04-26 09:54 source=openclaw:a8e9299fb8214335bdf8deeea714c479 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+
+根據台北市健言社官網頁面（https://tmc1974.com/board-members/）整理：
+- 頁面標題：理事會 - 台北市健言社
+- 第十六屆理監事會Board Committees
+- 梁慈珊 第十六屆理事長
+- 簡藝雯 第十六屆總幹事
+- 常務理事
+- 郭佳興 教育訓練委員會
+- 傅瑩貞 教育訓練委員會
+- 張雅淳 公關社拓委員會
+- 高宇勤 文書史料委員會
+- [PENDING_REVIEW] 2026-04-26 10:01 source=openclaw:8ff4d7572c9748d388d645e32454f64a user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- [PENDING_REVIEW] 2026-04-26 10:24 source=openclaw:a1eb53989e5e4c89b5f833da68ac1a9c user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-26 10:35 source=openclaw:4bc40c7e4ef3443083e353d8e33e4000 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官網頁面（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 人際關係
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- [PENDING_REVIEW] 2026-04-26 10:38 source=openclaw:0b8170bb14dc4e948a549c0c3385ddce user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方課表/課程查核：
+根據台北市健言社官網課表（https://tmc1974.com/schedule/），5/7 的課程資料如下：
+- 開場主題：健言小學堂
+- T.M. 訓練主題：重返 18 歲
+- 總評：郭佳興
+- 教育訓練：團隊激勵術
+- 講師：張東賢
+- [PENDING_REVIEW] 2026-04-26 10:38 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=台北市健言社官網課表（https://tmc1974.com/schedule/）
+- [PENDING_REVIEW] 2026-04-26 10:39 source=openclaw:0e6044fe1b1f447a8b9fa34e52ce4875 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-26 10:40 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=台北市健言社官網課表（https://tmc1974.com/schedule/）；來源：台北市健言社官網；確認日期：2026-04-26

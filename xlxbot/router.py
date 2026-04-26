@@ -512,18 +512,62 @@ def is_current_sensitive_query(user_input, intent):
     return intent in {INTENT_MEMBER, INTENT_ACTIVITY, INTENT_ANNOUNCEMENT, INTENT_COURSE, INTENT_PROMOTION}
 
 
-def should_use_openclaw_lookup(config, user_input, intent, knowledge_content, manual_exists=True, manual_hit=True):
+def is_problem_analysis_query(user_input):
+    text = (user_input or '').strip().lower()
+    if not text:
+        return False
+    analysis_keywords = [
+        '不理解',
+        '看不懂',
+        '不清楚',
+        '合理',
+        '可能',
+        '可行',
+        '判斷',
+        '分析',
+        '為什麼',
+        '爲什麼',
+        '怎麼會',
+        '問題在哪',
+        '哪裡怪',
+        '這樣對嗎',
+        '是不是',
+    ]
+    if any(keyword in text for keyword in analysis_keywords):
+        return True
+    compact = re.sub(r'\s+', '', text)
+    return compact in {'這是什麼', '這什麼', '有點短', '不懂', '看不懂'}
+
+
+def get_openclaw_lookup_reasons(config, user_input, intent, knowledge_content, manual_exists=True, manual_hit=True):
     if not getattr(config, 'sidecar_enabled', False):
-        return False
+        return []
     if getattr(config, 'openclaw_phase', 'suggest') == 'observe':
-        return False
+        return []
+
+    reasons = []
     if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit):
-        return True
+        reasons.append('manual_missing_or_no_hit')
     if is_current_sensitive_query(user_input, intent):
-        return True
+        reasons.append('current_or_time_sensitive_query')
     if not has_grounded_facts(knowledge_content):
-        return True
-    return has_missing_markers(knowledge_content)
+        reasons.append('local_knowledge_empty_or_unusable')
+    if has_missing_markers(knowledge_content):
+        reasons.append('local_knowledge_has_missing_markers')
+    if is_problem_analysis_query(user_input):
+        reasons.append('problem_analysis_requested')
+    return list(dict.fromkeys(reasons))
+
+
+def should_use_openclaw_lookup(config, user_input, intent, knowledge_content, manual_exists=True, manual_hit=True):
+    return bool(get_openclaw_lookup_reasons(
+        config,
+        user_input,
+        intent,
+        knowledge_content,
+        manual_exists=manual_exists,
+        manual_hit=manual_hit,
+    ))
 
 
 def openclaw_outputs_have_grounding(result):
@@ -561,7 +605,10 @@ def build_openclaw_reference_log_summary(result, max_outputs=3, max_output_chars
         }
 
     joined = '\n'.join(str(item) for item in result.outputs)
-    sources = sorted(set(re.findall(r'https?://[^\s)）]+', joined)))
+    sources = sorted(set(
+        raw_url.rstrip('.,，。;；')
+        for raw_url in re.findall(r'https?://[^\s)）,，。;；]+', joined)
+    ))
     outputs = [
         compact_log_text(item, max_output_chars)
         for item in result.outputs[:max_outputs]
@@ -698,7 +745,8 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         '7. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 不足，改用 OpenClaw 查核結果，仍不足才回覆資料不足。\n'
         '8. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n'
         '9. 若使用者提供已核可官方連結或要求看官網 / 官方社群，必須使用本次 OpenClaw / 官方查核結果；禁止回答「我無法主動瀏覽、無法解讀連結、只能依本地知識」這類與系統能力相反的說法。\n'
-        '10. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
+        '10. 若問題不清楚、上下文不足或可能有多種解讀，先說明「我目前能合理判斷的是...」，列出 1-3 個合理可能性，再指出需要補充的資訊；不可把其中一種可能性當成事實。\n'
+        '11. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
@@ -869,13 +917,25 @@ def ask_ai(
 
         openclaw_guidance = ''
         sidecar_result = None
-        needs_openclaw_lookup = should_use_openclaw_lookup(
+        openclaw_lookup_reasons = get_openclaw_lookup_reasons(
             config,
             user_input,
             intent,
             scoped_knowledge,
             manual_exists=manual_exists,
             manual_hit=manual_hit,
+        )
+        needs_openclaw_lookup = bool(openclaw_lookup_reasons)
+        logger.info(
+            'OPENCLAW_USAGE_CHECK intent=%s task_type=%s needs_lookup=%s reasons=%s manual_exists=%s manual_hit=%s grounded=%s missing_markers=%s',
+            intent,
+            task_type,
+            needs_openclaw_lookup,
+            openclaw_lookup_reasons,
+            manual_exists,
+            manual_hit,
+            has_grounded_facts(scoped_knowledge),
+            has_missing_markers(scoped_knowledge),
         )
         should_dispatch_sidecar = config.sidecar_enabled and (task_type == 'command' or needs_openclaw_lookup)
         if should_dispatch_sidecar:
@@ -919,6 +979,7 @@ def ask_ai(
                         'official_course_schedule_retrieved': course_info_retrieved,
                         'grounding_context': scoped_knowledge[:4000],
                         'needs_official_lookup': needs_openclaw_lookup,
+                        'lookup_reasons': openclaw_lookup_reasons,
                         'approved_sources': [
                             'https://tmc1974.com/',
                             'https://tmc1974.com/schedule/',
@@ -952,15 +1013,24 @@ def ask_ai(
                     'outputs': sidecar_result.outputs[:5] if sidecar_result else [],
                     'learnable': bool(sidecar_result and sidecar_result.task_type in {'lookup', 'analyze'} and sidecar_result.outputs),
                 }
-                logger.info('AUDIT sidecar decision should_call=%s reason=%s task_type=%s', decision.should_call_sidecar, decision.reason, decision.task_type)
+                logger.info(
+                    'OPENCLAW_USAGE_DECISION timing=before_provider_call should_call=%s decision_reason=%s task_type=%s lookup_reasons=%s audit_ref=%s status=%s',
+                    decision.should_call_sidecar,
+                    decision.reason,
+                    decision.task_type,
+                    openclaw_lookup_reasons,
+                    sidecar_result.audit_ref if sidecar_result else None,
+                    sidecar_result.status if sidecar_result else None,
+                )
                 openclaw_guidance = build_openclaw_prompt_guidance(sidecar_result)
                 if openclaw_outputs_have_grounding(sidecar_result):
                     reference_summary = build_openclaw_reference_log_summary(sidecar_result)
                     logger.info(
-                        'AUDIT openclaw referenced audit_ref=%s task_type=%s confidence=%s sources=%s outputs=%s',
+                        'OPENCLAW_REFERENCE_USED timing=before_provider_prompt audit_ref=%s task_type=%s confidence=%s trigger_reasons=%s sources=%s outputs=%s',
                         reference_summary['audit_ref'],
                         reference_summary['task_type'],
                         reference_summary['confidence'],
+                        openclaw_lookup_reasons,
                         reference_summary['sources'],
                         reference_summary['outputs'],
                     )
@@ -998,7 +1068,14 @@ def ask_ai(
                 tracker.end_step(success=False, result='site_retrieval_failed')
 
         if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
-            logger.info('Refusing to answer due to insufficient grounded facts intent=%s', intent)
+            logger.info(
+                'OPENCLAW_NO_GROUNDED_ANSWER timing=before_provider_call intent=%s lookup_attempted=%s lookup_reasons=%s sidecar_status=%s audit_ref=%s',
+                intent,
+                should_dispatch_sidecar,
+                openclaw_lookup_reasons,
+                sidecar_result.status if sidecar_result else None,
+                sidecar_result.audit_ref if sidecar_result else None,
+            )
             tracker.end_step(success=True, result='insufficient_facts')
             return build_insufficient_knowledge_response(
                 teaching_plan.next_action if teaching_plan else '請提供可核對的社團資料來源後再詢問。'

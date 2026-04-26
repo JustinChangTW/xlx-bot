@@ -9,9 +9,12 @@ from xlxbot.router import (
     build_openclaw_prompt_guidance,
     classify_openclaw_task_type,
     classify_question_intent,
+    get_openclaw_lookup_reasons,
+    is_problem_analysis_query,
     select_controlled_tool,
     RequestStateTracker,
     should_retrieve_official_course_schedule,
+    should_use_openclaw_lookup,
 )
 from xlxbot.sidecar.schemas import SidecarResult
 from xlxbot.tool_registry import load_tool_registry
@@ -124,6 +127,44 @@ class RouterTestCase(unittest.TestCase):
         self.assertIn('https://tmc1974.com/leaders/', summary['sources'])
         self.assertIn('https://tmc1974.com/board-members/', summary['sources'])
         self.assertTrue(summary['outputs'][0].endswith('...'))
+
+    def test_openclaw_lookup_reasons_include_empty_local_knowledge(self):
+        class Config:
+            sidecar_enabled = True
+            openclaw_phase = 'suggest'
+
+        reasons = get_openclaw_lookup_reasons(
+            Config(),
+            '現任幹部是誰？',
+            'MEMBER_QUERY',
+            '[無可用知識片段]',
+        )
+
+        self.assertIn('local_knowledge_empty_or_unusable', reasons)
+        self.assertIn('current_or_time_sensitive_query', reasons)
+        self.assertTrue(
+            should_use_openclaw_lookup(
+                Config(),
+                '現任幹部是誰？',
+                'MEMBER_QUERY',
+                '[無可用知識片段]',
+            )
+        )
+
+    def test_problem_analysis_query_reason_is_logged_for_openclaw_context(self):
+        class Config:
+            sidecar_enabled = True
+            openclaw_phase = 'suggest'
+
+        self.assertTrue(is_problem_analysis_query('這樣合理嗎？'))
+        reasons = get_openclaw_lookup_reasons(
+            Config(),
+            '這樣合理嗎？',
+            'FACT_QUERY',
+            '## FAQ\n- [目前知識庫沒有這項資訊]',
+        )
+
+        self.assertIn('problem_analysis_requested', reasons)
 
     def test_request_tracker_allows_nested_step_transition(self):
         tracker = RequestStateTracker()
