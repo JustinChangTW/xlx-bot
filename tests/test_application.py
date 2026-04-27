@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 from bs4 import BeautifulSoup
 from flask import Flask
-from xlxbot.application import BotApplication
+from xlxbot.application import BotApplication, sanitize_user_visible_response
 from xlxbot.config import AppConfig
 from xlxbot.logging_setup import setup_logging
 from xlxbot.providers import ProviderService
@@ -59,6 +59,16 @@ class ApplicationTestCase(unittest.TestCase):
             )
             app.run()
             mock_app_instance.run.assert_called_once_with(host='0.0.0.0', port=8080)
+
+    def test_sanitize_user_visible_response_removes_internal_citations(self):
+        text = '四不原則包含不談商業。 \"\"\" [cite: 90_club_manual.md] \"\"\"\\n請準時上課。[cite: knowledge/50_programs_and_events.md]'
+
+        sanitized = sanitize_user_visible_response(text)
+
+        self.assertIn('四不原則包含不談商業。', sanitized)
+        self.assertIn('請準時上課。', sanitized)
+        self.assertNotIn('[cite:', sanitized)
+        self.assertNotIn('90_club_manual.md', sanitized)
 
     def test_sidecar_lookup_for_fact_query_when_local_knowledge_is_insufficient(self):
         config = SimpleNamespace(sidecar_enabled=True, sidecar_mode='mock', sidecar_timeout_seconds=8, openclaw_phase='suggest')

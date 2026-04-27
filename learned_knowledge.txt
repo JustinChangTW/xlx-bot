@@ -274,3 +274,5 @@
 - [PENDING_REVIEW] 2026-04-26 10:38 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=台北市健言社官網課表（https://tmc1974.com/schedule/）
 - [PENDING_REVIEW] 2026-04-26 10:39 source=openclaw:0e6044fe1b1f447a8b9fa34e52ce4875 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
 - [PENDING_REVIEW] 2026-04-26 10:40 source=ai_learned_tag user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=台北市健言社官網課表（https://tmc1974.com/schedule/）；來源：台北市健言社官網；確認日期：2026-04-26
+- [PENDING_REVIEW] 2026-04-27 19:04 source=openclaw:6b989960068d4810b07b976cb066f2f9 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-27 19:51 source=openclaw:8d1f9fea16694c3c9afa334cfd970e8f user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。

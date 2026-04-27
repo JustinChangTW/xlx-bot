@@ -34,6 +34,19 @@ from .tool_registry import load_tool_registry
 from .webhook_sync import get_desired_webhook_url, sync_line_webhook, webhook_sync_worker
 
 
+USER_VISIBLE_CITATION_RE = re.compile(
+    r'(?:"{3}\s*)?\[cite:\s*[^\]]+\](?:\s*"{3})?',
+    flags=re.IGNORECASE,
+)
+
+
+def sanitize_user_visible_response(text):
+    cleaned = USER_VISIBLE_CITATION_RE.sub('', text or '')
+    cleaned = re.sub(r'[ \t]+\n', '\n', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned.strip()
+
+
 class BotApplication:
     def __init__(self, logger):
         self.logger = logger
@@ -658,6 +671,11 @@ class BotApplication:
                             )
                             self.logger.info('Saved pending-review knowledge: %s', fact)
                         ai_response = re.sub(r'<LEARNED>.*?</LEARNED>', '', ai_response, flags=re.IGNORECASE | re.DOTALL).strip()
+
+                    sanitized_response = sanitize_user_visible_response(ai_response)
+                    if sanitized_response != ai_response:
+                        self.logger.info('Removed internal citation markers from user-visible response')
+                        ai_response = sanitized_response
 
                     if '資料不足' in ai_response or '查不到' in ai_response:
                         insufficient_decision = self.policy_engine.evaluate(
