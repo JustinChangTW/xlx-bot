@@ -5,7 +5,7 @@ from dataclasses import dataclass
 def load_dotenv(path, logger):
     # 用最簡單的方式讀 .env，避免額外依賴 python-dotenv。
     if not os.path.exists(path):
-        logger.warning('.env file not found: %s', path)
+        logger.warning('.env file not found: %s（找不到環境變數檔，會改用目前 shell/container 的環境變數）', path)
         return {}
 
     loaded = {}
@@ -26,7 +26,7 @@ def load_dotenv(path, logger):
         logger.exception('Failed to read .env file: %s', path)
         return {}
 
-    logger.info('Loaded %s env vars from %s', len(loaded), path)
+    logger.info('Loaded %s env vars from %s（已載入本機設定，但不會覆蓋既有環境變數）', len(loaded), path)
     return loaded
 
 
@@ -149,6 +149,8 @@ class AppConfig:
             flask_host=os.getenv('FLASK_HOST', '0.0.0.0'),
             flask_port=int(os.getenv('FLASK_PORT', '8080')),
             openclaw_base_url=os.getenv('OPENCLAW_BASE_URL', '').strip().rstrip('/'),
+            # Sidecar/OpenClaw 的預設採保守策略：沒有 base URL 時走 mock，
+            # 有 base URL 或明確指定 openclaw 時才嘗試真實 gateway。
             sidecar_enabled=(os.getenv('SIDECAR_ENABLED', 'false').lower() in ('1', 'true', 'yes'))
                 or (not os.getenv('SIDECAR_MODE') and bool(os.getenv('OPENCLAW_BASE_URL', '').strip()))
                 or (os.getenv('SIDECAR_MODE', '').strip().lower() == 'openclaw' and bool(os.getenv('OPENCLAW_BASE_URL', '').strip())),
@@ -182,7 +184,7 @@ def validate_environment(config, logger):
     # LINE 憑證改成可降級的警告，不再讓整體服務因此無法啟動。
     missing = [name for name in config.required_env_vars if not os.getenv(name)]
     if missing:
-        logger.warning('Missing optional LINE environment variables: %s', missing)
+        logger.warning('Missing optional LINE environment variables: %s（缺少 LINE 憑證，LINE webhook 會先停用）', missing)
         if not os.path.exists(config.env_file):
-            logger.warning('Expected .env file at %s', config.env_file)
-        logger.warning('LINE webhook features will be disabled until these variables are set in %s.', config.env_file)
+            logger.warning('Expected .env file at %s（建議建立 .env 或改用容器環境變數）', config.env_file)
+        logger.warning('LINE webhook features will be disabled until these variables are set in %s.（服務仍可用 /health 做本機檢查）', config.env_file)

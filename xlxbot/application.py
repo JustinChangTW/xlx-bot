@@ -71,13 +71,13 @@ class BotApplication:
             self.line_bot_configuration = Configuration(access_token=self.config.line_access_token)
             self.handler = WebhookHandler(self.config.line_channel_secret)
         else:
-            self.logger.warning('LINE integration is disabled because credentials are missing')
+            self.logger.warning('LINE integration is disabled because credentials are missing（缺少 LINE 憑證，先只啟用本機服務與 health check）')
         self._register_routes()
         if self.handler is not None:
             self._register_handlers()
 
     def run_startup_checks(self):
-        self.logger.info('Starting environment checks...')
+        self.logger.info('Starting environment checks...（開始啟動前檢查：port、Ollama、knowledge）')
         self.state.startup_checks_completed = True
         self.state.startup_checks_passed = False
         self.state.last_startup_error = None
@@ -85,19 +85,19 @@ class BotApplication:
             self._run_preflight_checks()
             # Ollama 失敗時改成降級，不阻止整體服務啟動。
             if not check_ollama_service(self.config, self.logger):
-                self.logger.warning('Ollama service check failed. The bot will continue with non-Ollama providers if available.')
+                self.logger.warning('Ollama service check failed. The bot will continue with non-Ollama providers if available.（Ollama 不通，會嘗試其他 provider）')
             elif not check_ollama_model(self.config, self.logger, self.config.ollama_model_name):
                 self.logger.warning(
-                    'Ollama model check failed. The bot will continue with non-Ollama providers if available. Install with: ollama pull %s',
+                    'Ollama model check failed. The bot will continue with non-Ollama providers if available. Install with: ollama pull %s（模型不存在或尚未下載）',
                     self.config.ollama_model_name
                 )
             if not check_knowledge_file(self.config, self.logger):
-                error_message = f'Knowledge file check failed. Please ensure {self.config.knowledge_file} exists and contains content.'
+                error_message = f'Knowledge file check failed. Please ensure {self.config.knowledge_file} exists and contains content.（知識檔缺失，停止啟動避免亂答）'
                 self.logger.error(error_message)
                 self.state.last_startup_error = error_message
                 raise SystemExit(1)
             self.state.startup_checks_passed = True
-            self.logger.info('All environment checks passed. Starting bot...')
+            self.logger.info('All environment checks passed. Starting bot...（啟動檢查完成，準備啟動 Flask）')
         except SystemExit:
             if self.state.last_startup_error is None:
                 self.state.last_startup_error = 'startup_checks_exited'
@@ -109,7 +109,7 @@ class BotApplication:
 
     def _run_preflight_checks(self):
         self.logger.info(
-            'Preflight config host=%s port=%s line_enabled=%s model=%s knowledge_file=%s',
+            'Preflight config host=%s port=%s line_enabled=%s model=%s knowledge_file=%s（目前啟動設定摘要）',
             self.config.flask_host,
             self.config.flask_port,
             self.config.line_integration_enabled,
@@ -123,11 +123,11 @@ class BotApplication:
         if not listeners:
             bind_error = self._get_bind_error()
             if bind_error is None:
-                self.logger.info('Port preflight passed on %s:%s', self.config.flask_host, self.config.flask_port)
+                self.logger.info('Port preflight passed on %s:%s（連接埠可用）', self.config.flask_host, self.config.flask_port)
                 return
             if isinstance(bind_error, PermissionError):
                 self.logger.warning(
-                    'Port bind probe skipped on %s:%s due to environment permission limits. No existing listener was detected.',
+                    'Port bind probe skipped on %s:%s due to environment permission limits. No existing listener was detected.（權限限制下略過 bind 測試）',
                     self.config.flask_host,
                     self.config.flask_port
                 )
@@ -141,7 +141,7 @@ class BotApplication:
                 )
                 raise SystemExit(1)
             self.logger.error(
-                'Port %s appears occupied, but the listening process could not be identified.',
+                'Port %s appears occupied, but the listening process could not be identified.（連接埠被占用，但找不到占用程序）',
                 self.config.flask_port
             )
             raise SystemExit(1)
@@ -151,11 +151,11 @@ class BotApplication:
 
         if foreign_pids:
             details = ', '.join(f'pid={pid} cmd="{self._read_cmdline(pid)}"' for pid in foreign_pids)
-            self.logger.error('Port %s is occupied by another process: %s', self.config.flask_port, details)
+            self.logger.error('Port %s is occupied by another process: %s（連接埠被其他程序占用，請先停止該程序或改 FLASK_PORT）', self.config.flask_port, details)
             raise SystemExit(1)
 
         for pid in stale_bot_pids:
-            self.logger.warning('Port %s is occupied by a stale xlx-bot process pid=%s. Terminating it.', self.config.flask_port, pid)
+            self.logger.warning('Port %s is occupied by a stale xlx-bot process pid=%s. Terminating it.（偵測到舊的 bot 程序，嘗試清掉）', self.config.flask_port, pid)
             self._terminate_process(pid)
 
         remaining = self._find_port_listeners(self.config.flask_port)
@@ -168,7 +168,7 @@ class BotApplication:
             )
             raise SystemExit(1)
 
-        self.logger.info('Port %s became available after stale-process cleanup', self.config.flask_port)
+        self.logger.info('Port %s became available after stale-process cleanup（舊程序清理後連接埠已可用）', self.config.flask_port)
 
     def _get_bind_error(self):
         sock = None
@@ -295,6 +295,8 @@ class BotApplication:
         self.state.last_message_error = (reason or 'unknown_error')[:200]
 
     def _build_health_payload(self):
+        # /health 不只回 ok/error，也提供給部署者判斷是哪一層降級：
+        # LINE、provider、knowledge、sidecar/OpenClaw 或最近處理錯誤。
         provider_status = {
             name: self.providers.is_provider_available(name)
             for name in ('ollama', 'gemini', 'groq', 'xai', 'github')
@@ -406,6 +408,7 @@ class BotApplication:
 
         @self.app.route('/v1/sidecar/dispatch', methods=['POST'])
         def openclaw_sidecar_dispatch():
+            # 這是本機 OpenClaw 相容端點，方便沒有外部 gateway 時先測查核流程。
             payload = request.get_json(silent=True) or {}
             user_input = str(payload.get('user_input') or '')
             task_type = str(payload.get('task_type') or 'lookup')
@@ -427,6 +430,13 @@ class BotApplication:
             outputs = self._build_local_openclaw_outputs(user_input, task_type, intent)
             is_lookup = task_type in {'lookup', 'analyze'}
             status = 'ok' if outputs else 'degraded'
+            self.logger.info(
+                'Local OpenClaw dispatch task_type=%s intent=%s status=%s outputs=%s（本機查核端點完成）',
+                task_type,
+                intent,
+                status,
+                len(outputs),
+            )
 
             return jsonify({
                 'status': status,
@@ -463,7 +473,7 @@ class BotApplication:
         @self.app.route('/callback', methods=['POST'])
         def callback():
             if self.handler is None:
-                self.logger.warning('LINE callback received while LINE integration is disabled')
+                self.logger.warning('LINE callback received while LINE integration is disabled（收到 LINE webhook，但 LINE 憑證未啟用）')
                 return jsonify({'error': 'line integration disabled'}), 503
             # LINE webhook 需要用簽章驗證請求是否真的來自 LINE。
             signature = request.headers.get('X-Line-Signature', '')
@@ -472,10 +482,10 @@ class BotApplication:
             try:
                 self.handler.handle(body, signature)
             except InvalidSignatureError:
-                self.logger.warning('Invalid LINE signature')
+                self.logger.warning('Invalid LINE signature（LINE 簽章驗證失敗，可能是 channel secret 或 webhook 來源不正確）')
                 abort(400)
             except Exception:
-                self.logger.exception('Failed to handle LINE request')
+                self.logger.exception('Failed to handle LINE request（處理 LINE webhook 時發生例外）')
                 abort(500)
             return 'OK'
 
@@ -483,6 +493,7 @@ class BotApplication:
         outputs = []
         try:
             if task_type in {'lookup', 'analyze'}:
+                # 查核順序採保守策略：課表、公告、官方站台摘要；有資料才交給回答流程引用。
                 course_info = self.providers.query_course_info(user_input)
                 if course_info:
                     outputs.append(f'官方課表/課程查核：\n{course_info}')
@@ -509,7 +520,7 @@ class BotApplication:
             ])
             return outputs
         except Exception as exc:
-            self.logger.warning('Local OpenClaw dispatch failed: %s', exc)
+            self.logger.warning('Local OpenClaw dispatch failed: %s（本機 OpenClaw 查核失敗，回答流程需保守降級）', exc)
             return []
 
     def _build_openclaw_audit_ref(self, trace_id):
@@ -523,7 +534,7 @@ class BotApplication:
             def process_message():
                 user_text = event.message.text
                 user_id = getattr(event.source, 'user_id', None)
-                self.logger.info('Received text message from user_id=%s text=%s', user_id, user_text)
+                self.logger.info('Received text message from user_id=%s text=%s（收到使用者文字訊息）', user_id, user_text)
                 self._mark_message_received(user_id, user_text)
 
                 try:
@@ -533,6 +544,7 @@ class BotApplication:
                     history = self.state.conversation_history[user_id]
 
                     if detect_user_correction(user_text):
+                        self.logger.info('User correction detected user_id=%s（偵測到使用者更正，寫入 learning event 待後續整理）', user_id)
                         correction_decision = self.policy_engine.evaluate(
                             intent='user_feedback',
                             action='capture_correction',
@@ -554,6 +566,7 @@ class BotApplication:
                         )
 
                     lessons_guidance = load_pre_answer_lessons(self.config, self.logger)
+                    self.logger.info('Asking AI router user_id=%s history_size=%s（進入回答流程：知識、OpenClaw、provider 會在 router 內決策）', user_id, len(history))
                     ai_response = ask_ai(
                         self.config,
                         self.state,
@@ -610,6 +623,12 @@ class BotApplication:
                             fallback=self.state.last_agent_decision.get('dispatch_reason', 'none'),
                         )
                     if self.state.last_sidecar_decision:
+                        self.logger.info(
+                            'Sidecar decision captured should_call=%s reason=%s audit_ref=%s（OpenClaw/sidecar 決策已記錄）',
+                            self.state.last_sidecar_decision.get('should_call'),
+                            self.state.last_sidecar_decision.get('reason'),
+                            self.state.last_sidecar_decision.get('audit_ref'),
+                        )
                         append_learning_event(
                             self.config,
                             self.logger,
@@ -625,6 +644,7 @@ class BotApplication:
                         )
                         if self.state.last_sidecar_decision.get('learnable'):
                             audit_ref = self.state.last_sidecar_decision.get('audit_ref') or 'unknown'
+                            self.logger.info('OpenClaw outputs marked learnable audit_ref=%s（查核結果只進 pending review，不直接寫正式 knowledge）', audit_ref)
                             for item in self.state.last_sidecar_decision.get('outputs', []):
                                 fact = str(item).strip()
                                 if not fact:
@@ -678,6 +698,7 @@ class BotApplication:
                         ai_response = sanitized_response
 
                     if '資料不足' in ai_response or '查不到' in ai_response:
+                        self.logger.info('Answer marked as insufficient data user_id=%s（本地與查核資料不足，採保守回答）', user_id)
                         insufficient_decision = self.policy_engine.evaluate(
                             intent='qa_response',
                             action='answer_with_insufficient_data',
@@ -722,7 +743,7 @@ class BotApplication:
                         # 記錄 provider 鏈失敗到狀態
                         self.state.add_recent_error('provider_chain_failed', 'All providers failed', {'user_input': user_text[:100]})
 
-                    self.logger.info('Replying to LINE user_id=%s response_length=%s', user_id, len(ai_response))
+                    self.logger.info('Replying to LINE user_id=%s response_length=%s（準備回覆 LINE）', user_id, len(ai_response))
                     history.append((user_text, ai_response))
                     if len(history) > self.state.max_history_length:
                         history.pop(0)

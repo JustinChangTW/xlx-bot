@@ -1,12 +1,12 @@
 # Troubleshooting（自動整理）
 
-- 更新時間：2026-04-27
+- 更新時間：2026-04-28
 
 ## 重複錯誤與建議處理
-- allow_policy intent=knowledge_qa action=knowledge_lookup risk=low tool=knowledge_lookup（最近 32 次）
-- openclaw_pending_review（最近 20 次）
-- official-lookup（最近 17 次）
-- pending_review_policy intent=command action=sidecar_dispatch risk=medium tool=sidecar_dispatch（最近 10 次）
+- allow_policy intent=knowledge_qa action=knowledge_lookup risk=low tool=knowledge_lookup（最近 37 次）
+- openclaw_pending_review（最近 26 次）
+- official-lookup（最近 23 次）
+- pending_review_policy intent=command action=sidecar_dispatch risk=medium tool=sidecar_dispatch（最近 11 次）
 - insufficient_data（最近 8 次）
 
 ## 建議

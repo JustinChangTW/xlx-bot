@@ -1,17 +1,17 @@
-# USER.md - About Your Human
+# USER.md - 關於你的使用者
 
-_Learn about the person you're helping. Update this as you go._
+_慢慢認識你正在協助的人。學到重要資訊時，再更新這個檔案。_
 
-- **Name:**
-- **What to call them:**
-- **Pronouns:** _(optional)_
-- **Timezone:**
-- **Notes:**
+- **名字：**
+- **希望如何稱呼：**
+- **代名詞：** _(可選)_
+- **時區：**
+- **備註：**
 
-## Context
+## 脈絡
 
-_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
+_(他在意什麼？正在做哪些專案？什麼事情會讓他不耐煩？什麼會讓他覺得好笑？這些可以隨著相處慢慢累積。)_
 
 ---
 
-The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+你知道得越多，就越能幫上忙。但請記得，你是在認識一個人，不是在建立檔案夾式的監控資料。尊重這個差別。
