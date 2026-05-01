@@ -288,3 +288,35 @@
 - [PENDING_REVIEW] 2026-04-28 07:23 source=openclaw:08282697283946b38096145686e11f12 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
 - [PENDING_REVIEW] 2026-04-28 07:26 source=openclaw:130ba8ce295c41afb52f1d98e5b5cf33 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
 - [PENDING_REVIEW] 2026-04-28 07:27 source=openclaw:b90ac24feb0b452b83ac1e934efa0799 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 18:39 source=openclaw:69a639c10d75468ea3e7a3bb1e64317c user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 18:40 source=openclaw:978a689b0ffe4b4db80f81f5540218b4 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=官方網站查核：
+根據台北市健言社官方來源（https://tmc1974.com/）整理：
+- 頁面標題：台北市健言社 - 口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 頁面描述：口才訓練課程，口才訓練班，演講技巧，人際關係，演講技巧訓練
+- 本社宗旨
+- 語言表達訓練，人際關係能力培養。
+- 公眾演講
+- 從容不迫面對觀眾、侃侃而談， 達成有效之談話藝術。
+- 領導才能
+- 參與主持會議之進行， 加強領導才能。
+- 聆聽溝通
+- 聆聽他人言論，達成有效溝通。
+- 相關連結：
+- 最新公告 Events: https://tmc1974.com/category/events/
+- 課程 Courses: https://tmc1974.com/category/courses/
+- 第159期第九週－對話巧藝：從辯論教你有效溝通: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b9%9d%e9%80%b1%ef%bc%8d%e5%b0%8d%e8%a9%b1%e5%b7%a7%e8%97%9d%ef%bc%9a%e5%be%9e%e8%be%af%e8%ab%96%e6%95%99%e4%bd%a0%e6%9c%89%e6%95%88%e6%ba%9d%e9%80%9a/
+- 第159期第八週－故事延伸力: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ab%e9%80%b1%ef%bc%8d%e6%95%85%e4%ba%8b%e5%bb%b6%e4%bc%b8%e5%8a%9b/
+- 第159期第七週－講評萬萬歲: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e4%b8%83%e9%80%b1%ef%bc%8d%e8%ac%9b%e8%a9%95%e8%90%ac%e8%90%ac%e6%ad%b2/
+- 第159期第六週－演講風格賞析: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e7%ac%ac%e5%85%ad%e9%80%b1%ef%bc%8d%e6%bc%94%e8%ac%9b%e9%a2%a8%e6%a0%bc%e8%b3%9e%e6%9e%90/
+- 第159期【 健言講堂 】開會不吃悶虧！ 議事規則 ✕ 口語表達實務: https://tmc1974.com/courses/%e7%ac%ac159%e6%9c%9f%e3%80%90-%e5%81%a5%e8%a8%80%e8%ac%9b%e5%a0%82-%e3%80%91%e9%96%8b%e6%9c%83%e4%b8%8d%e5%90%83%e6%82%b6%e8%99%a7%ef%bc%81%e8%ad%b0%e4%ba%8b%e8%a6%8f%e5%89%87-%e2%9c%95-%e5%8f%a3/
+- 🚴‍♂️ 【健言騎士團】走出教室，迎風開口！大稻埕 ➔ 淡水微挑戰: https://tmc1974.com/courses/%f0%9f%9a%b4%e2%99%82%ef%b8%8f-%e3%80%90%e5%81%a5%e8%a8%80%e9%a8%8e%e5%a3%ab%e5%9c%98%e3%80%91%e8%b5%b0%e5%87%ba%e6%95%99%e5%ae%a4%ef%bc%8c%e8%bf%8e%e9%a2%a8%e9%96%8b%e5%8f%a3%ef%bc%81/
+- 宜蘭包棟-採茶趣: https://www.flickr.com/photos/133676498@N06/albums/72177720331895932
+- 第158期第1週－自信表達，挑戰舞台: https://www.flickr.com/photos/133676498@N06/albums/
+- [PENDING_REVIEW] 2026-04-29 18:41 source=openclaw:41f430d312f349e291638a1108ab4ef2 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 18:59 source=openclaw:5270c677753f4c2993d7affc4ea78d54 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 19:00 source=openclaw:bf6312bef52546e383f0d14ffa3039a7 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 19:15 source=openclaw:5edf6929b0e54a2eba88507e71d60d67 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 19:16 source=openclaw:649a9c11e21b43998bb7935534e15283 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 19:18 source=openclaw:39b50d2bbcd749b2835b0e66acc7dccf user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-29 19:26 source=openclaw:670abd253b984d879c7fa04f83034022 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
+- [PENDING_REVIEW] 2026-04-30 07:25 source=openclaw:839ae135eae24f4294a08af8010c73a4 user_id=Ubc8d0585ef2c5ead4d131a57ddc60334 fact=已完成本地 OpenClaw 查核流程，但目前未從已核可官方來源取得足夠資料；請回到保守回答，明確說明本地與官方查核都不足。
