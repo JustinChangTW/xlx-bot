@@ -317,8 +317,11 @@ class ProviderService:
 
     def _is_internal_course_query(self, user_input):
         text = (user_input or '').lower()
+        if any(keyword in text for keyword in ['會外會', '戶外活動']):
+            return False
         keywords = [
-            '課程', '課表', '上課', '教育訓練', 'tm', '題目', '社課', '會內會',
+            '課程', '課表', '時間表', '開課時間', '上課時間', '課程時間',
+            '上課', '教育訓練', 'tm', '題目', '社課', '會內會', '幾點', '何時', '什麼時候',
             '今天', '明天', '後天', '這週', '這周', '本週', '本周', '下週', '下周', '下一週', '下一周', '下個月', '下个月', '下月'
         ]
         return any(keyword in text for keyword in keywords)
@@ -904,14 +907,17 @@ class ProviderService:
         return None
 
     def _build_schedule_row_summary(self, row, url):
+        tm_topic = row["tm_topic"]
+        training_topic = row["training_topic"]
+        lecturer = row["lecturer"]
         return '\n'.join(
             [
                 f'根據台北市健言社官網課表（{url}），{row["date_text"]} 的課程資料如下：',
-                f'- 開場主題：{row["opening_topic"]}',
-                f'- T.M. 訓練主題：{row["tm_topic"]}',
-                f'- 總評：{row["general_evaluator"]}',
-                f'- 教育訓練：{row["training_topic"]}',
-                f'- 講師：{row["lecturer"]}',
+                f'- TM 主題：{tm_topic}',
+                f'  說明：本段會以「{tm_topic}」作為 T.M. 訓練主軸，協助學員練習臨場表達、畫面描述與說服力。',
+                f'- 教育訓練題目：{training_topic}',
+                f'  講師：{lecturer}',
+                f'  說明：本段由{lecturer}帶領，聚焦「{training_topic}」，協助學員把技巧整理成可上台使用的表達方法。',
             ]
         )
 
@@ -922,8 +928,9 @@ class ProviderService:
                 [
                     f'- {row["date_text"]}',
                     f'  開場主題：{row["opening_topic"]}',
-                    f'  T.M. 訓練主題：{row["tm_topic"]}',
-                    f'  教育訓練：{row["training_topic"]}',
+                    f'  TM 主題：{row["tm_topic"]}',
+                    f'  教育訓練題目：{row["training_topic"]}',
+                    f'  講師：{row["lecturer"]}',
                 ]
             )
         return '\n'.join(lines)
@@ -1026,7 +1033,7 @@ class ProviderService:
 
         if scraped_courses:
             course_summary = "根據台北市健言社官網最新公告：\n" + "\n".join(scraped_courses)
-            course_summary += f"\n\n更多詳情請訪問官網：{url}"
+            course_summary += f"\n\n來源：{url}"
             self.logger.info('Successfully scraped %d course/event items.', len(scraped_courses))
             return course_summary
 

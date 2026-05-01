@@ -165,8 +165,11 @@ class AvailabilityTestCase(unittest.TestCase):
             result = provider.query_course_info('請問 4/23 的課程主題和 T.M. 題目是什麼？')
 
         self.assertIn('4/23', result)
-        self.assertIn('T.M. 訓練主題：拍賣會', result)
-        self.assertIn('教育訓練：故事延伸力', result)
+        self.assertIn('TM 主題：拍賣會', result)
+        self.assertIn('說明：本段會以「拍賣會」作為 T.M. 訓練主軸', result)
+        self.assertIn('教育訓練題目：故事延伸力', result)
+        self.assertIn('講師：傅瑩貞', result)
+        self.assertIn('說明：本段由傅瑩貞帶領，聚焦「故事延伸力」', result)
         get_mock.assert_called_once_with(
             'https://tmc1974.com/schedule/',
             timeout=10,
@@ -253,7 +256,9 @@ class AvailabilityTestCase(unittest.TestCase):
             result = provider.query_course_info('下一周課程主題與tm題目是什麼')
 
         self.assertIn('4/30', result)
-        self.assertIn('T.M. 訓練主題：即席想像', result)
+        self.assertIn('TM 主題：即席想像', result)
+        self.assertIn('教育訓練題目：故事節奏感', result)
+        self.assertIn('講師：陳講師', result)
 
     def test_query_course_info_this_week_uses_calendar_week(self):
         import datetime
@@ -288,8 +293,9 @@ class AvailabilityTestCase(unittest.TestCase):
             result = provider.query_course_info('本周課程主題與 TM 題目是什麼')
 
         self.assertIn('4/23', result)
-        self.assertIn('T.M. 訓練主題：拍賣會', result)
-        self.assertIn('教育訓練：故事延伸力', result)
+        self.assertIn('TM 主題：拍賣會', result)
+        self.assertIn('教育訓練題目：故事延伸力', result)
+        self.assertIn('講師：傅瑩貞', result)
 
     def test_query_course_info_tomorrow_returns_fixed_thursday_hint_when_no_class(self):
         import datetime
@@ -345,7 +351,9 @@ class AvailabilityTestCase(unittest.TestCase):
         self.assertIn('下個月的周四社課如下', result)
         self.assertIn('5/7', result)
         self.assertIn('5/28', result)
-        self.assertIn('T.M. 訓練主題：即席挑戰', result)
+        self.assertIn('TM 主題：即席挑戰', result)
+        self.assertIn('教育訓練題目：結尾力', result)
+        self.assertIn('講師：講師丁', result)
 
     def test_query_course_info_ignores_external_meeting_query(self):
         provider = ProviderService(AppConfig.from_env(), object(), self.logger)

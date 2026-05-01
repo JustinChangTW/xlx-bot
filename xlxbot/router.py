@@ -31,7 +31,65 @@ COURSE_SCHEDULE_RETRIEVAL_KEYWORDS = COURSE_TIME_KEYWORDS + [
     '題目',
     '課程主題',
     '課表',
+    '時間表',
+    '開課時間',
+    '上課時間',
+    '課程時間',
+    '時間',
+    '日期',
+    '幾點',
+    '何時',
+    '什麼時候',
     '會內會',
+]
+SKILL_TRAINING_KEYWORDS = [
+    '講評',
+    '總評',
+    '開場',
+    '開塲',
+    '破題',
+    '解題',
+    '講稿',
+    '演講稿',
+    '三分鐘',
+    '即席',
+    '主持',
+    '主席',
+    '串場',
+    '上台',
+    '台風',
+    '手勢',
+    '聲音',
+    '結尾',
+    '審題',
+]
+SKILL_HELP_KEYWORDS = [
+    '如何',
+    '怎麼',
+    '怎樣',
+    '可以如何',
+    '幫我',
+    '教我',
+    '給我',
+    '建議',
+    '寫',
+    '改',
+    '準備',
+]
+SKILL_CONTEXT_KEYWORDS = [
+    '擔任',
+    '我是',
+    '我當',
+    '輪到我',
+    '題目',
+    '主題',
+]
+SKILL_FACT_LOOKUP_KEYWORDS = [
+    '是誰',
+    '誰是',
+    '哪位',
+    '名單',
+    '安排',
 ]
 FACT_REQUIRED_INTENTS = {
     INTENT_FACT,
@@ -52,6 +110,13 @@ MISSING_INFO_MARKERS = [
     '[待補資料]',
     '待補資料',
     '資料不足',
+]
+USER_LOOKUP_DEFLECTION_PATTERNS = [
+    r'請(你|您)?(自行|自己|直接)?(到|至|上)?(官網|官方網站|公告頁|公告頁面|社團公告頁面|官方社群).{0,24}(查詢|查閱|查看|參考|確認|取得|獲得)',
+    r'(可|可以|建議|請).{0,12}(參考|查詢|查閱|查看|確認).{0,16}(官網|官方網站|公告頁|公告頁面|社團公告頁面|官方社群)',
+    r'(官網|官方網站|公告頁|公告頁面|社團公告頁面|官方社群).{0,24}(取得|獲得|查詢|查閱|查看|確認).{0,12}(最新|即時|詳細)?(資訊|資料|消息)',
+    r'(最新|即時|詳細)(資訊|資料|消息).{0,16}(請|可|可以|建議).{0,16}(參考|查詢|查閱|查看|確認)',
+    r'(請|可|可以|建議).{0,16}(參考|查詢|查閱|查看|確認).{0,16}(這些來源|相關來源).{0,16}(取得|獲得)?(最新|即時|詳細)?(資訊|資料|消息)',
 ]
 NON_FACT_SECTION_MARKERS = [
     '待補資料',
@@ -163,6 +228,8 @@ def timeout_context(seconds):
 
 def classify_openclaw_task_type(user_input, intent):
     text = (user_input or '').strip().lower()
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
+        return 'knowledge_qa'
     if any(keyword.lower() in text for keyword in CORRECTION_KEYWORDS):
         return 'user_correction'
     if any(keyword.lower() in text for keyword in ERROR_REPORT_KEYWORDS):
@@ -362,13 +429,15 @@ def classify_question_intent(user_input):
         return INTENT_ACTIVITY
     if any(keyword in text for keyword in ['會內會', '社課']):
         return INTENT_COURSE
+    if is_skill_training_request(user_input):
+        return INTENT_HOW_TO
     if any(keyword in text for keyword in COURSE_TIME_KEYWORDS):
         return INTENT_COURSE
     if any(keyword in text for keyword in ['規則', '章程', '制度', '請假規定', '出席規則', 'rule', 'policy']):
         return INTENT_RULE
     if any(keyword in text for keyword in ['如何', '怎麼', '怎么样', '怎樣', '步驟', '教我', '教學步驟', 'how to']):
         return INTENT_HOW_TO
-    if any(keyword in text for keyword in ['課程', '課表', '上課', '教學', 'workshop', 'curriculum']):
+    if any(keyword in text for keyword in ['課程', '課表', '時間表', '開課時間', '上課時間', '課程時間', '上課', '教學', 'workshop', 'curriculum']):
         return INTENT_COURSE
     if any(keyword in text for keyword in ['組織', '架構', '組別', '職責', '社長', '副社長', 'officer structure']):
         return INTENT_ORG
@@ -383,6 +452,20 @@ def classify_question_intent(user_input):
     if any(keyword in text for keyword in ['是什麼', '介紹', '特色', '文化', '做什麼', '宗旨']):
         return INTENT_OVERVIEW
     return INTENT_FACT
+
+
+def is_skill_training_request(user_input):
+    text = (user_input or '').lower()
+    if not text:
+        return False
+    if any(keyword.lower() in text for keyword in SKILL_FACT_LOOKUP_KEYWORDS):
+        return False
+    has_skill_keyword = any(keyword.lower() in text for keyword in SKILL_TRAINING_KEYWORDS)
+    if not has_skill_keyword:
+        return False
+    has_help_keyword = any(keyword.lower() in text for keyword in SKILL_HELP_KEYWORDS)
+    has_context_keyword = any(keyword.lower() in text for keyword in SKILL_CONTEXT_KEYWORDS)
+    return has_help_keyword or has_context_keyword
 
 
 def get_route_provider_chain(state, route_label, providers):
@@ -493,6 +576,8 @@ def has_missing_markers(knowledge_content):
 
 def is_current_sensitive_query(user_input, intent):
     text = (user_input or '').lower()
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
+        return False
     current_keywords = COURSE_TIME_KEYWORDS + [
         '目前',
         '現在',
@@ -543,6 +628,8 @@ def get_openclaw_lookup_reasons(config, user_input, intent, knowledge_content, m
     if not getattr(config, 'sidecar_enabled', False):
         return []
     if getattr(config, 'openclaw_phase', 'suggest') == 'observe':
+        return []
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
         return []
 
     reasons = []
@@ -686,6 +773,13 @@ def build_knowledge_context(sections, intent):
             manual_context, manual_hit = extract_club_manual_context(manual_sections[0].content, intent)
             if manual_context:
                 useful.append(f"--- 來自 {manual_sections[0].path}（優先來源） ---\n{manual_context}")
+        if intent == INTENT_COURSE:
+            course_sections = [
+                s for s in sections
+                if any(tag in s.path.lower() for tag in ['50_programs_and_events', '80_faq'])
+            ]
+            for section in course_sections:
+                useful.append(f"--- 來自 {section.path} ---\n{section.content}")
         return '\n\n'.join(useful), manual_exists, manual_hit
 
     for section in matched:
@@ -721,6 +815,8 @@ def build_openclaw_prompt_guidance(sidecar_result):
 
 
 def should_retrieve_official_course_schedule(config, user_input, intent):
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
+        return False
     if getattr(config, 'official_site_retrieval_enabled', False):
         return True
     if intent not in {INTENT_COURSE, INTENT_PROMOTION}:
@@ -730,24 +826,86 @@ def should_retrieve_official_course_schedule(config, user_input, intent):
     return any(keyword.lower() in text for keyword in COURSE_SCHEDULE_RETRIEVAL_KEYWORDS)
 
 
+def should_answer_official_course_info_directly(user_input, intent, course_info):
+    if intent != INTENT_COURSE or not course_info:
+        return False
+    if is_skill_training_request(user_input):
+        return False
+
+    text = (user_input or '').lower()
+    direct_keywords = COURSE_SCHEDULE_RETRIEVAL_KEYWORDS + [
+        '課程',
+        '課程安排',
+        '目前培訓班',
+        '培訓班',
+        '最近有什麼課',
+        '有什麼課',
+    ]
+    if not any(keyword.lower() in text for keyword in direct_keywords):
+        return False
+
+    source_signals = ['根據台北市健言社官網', '官網課表', '官網最新公告', 'https://tmc1974.com/']
+    return any(signal in course_info for signal in source_signals)
+
+
+def response_asks_user_to_lookup(response):
+    text = re.sub(r'\s+', '', response or '')
+    if not text:
+        return False
+    return any(re.search(pattern, text) for pattern in USER_LOOKUP_DEFLECTION_PATTERNS)
+
+
+def build_post_response_official_lookup(providers, user_input, intent, logger):
+    outputs = []
+
+    lookup_steps = [
+        ('官方課表/課程查核', getattr(providers, 'query_course_info', None), (user_input,)),
+        ('官方公告/文宣查核', getattr(providers, 'query_latest_news', None), (user_input,)),
+        ('官方網站查核', getattr(providers, 'query_official_site_map', None), (user_input, intent)),
+    ]
+    for label, func, args in lookup_steps:
+        if not callable(func):
+            continue
+        try:
+            result = func(*args)
+        except Exception as exc:
+            if logger:
+                logger.warning('Post-response official lookup failed label=%s error=%s', label, exc)
+            continue
+        if result:
+            outputs.append(f'{label}：\n{result}')
+
+    if outputs:
+        return '\n\n'.join(outputs)
+
+    return (
+        '我已查核目前可用的已核可官方來源，但沒有取得足夠明確的資料可以回答這題。'
+        '目前本地知識庫與可查核官方來源都沒有這項資訊。'
+    )
+
+
 def build_prompt(state, user_input, knowledge_content, intent, manual_exists, manual_hit, history=None, lessons_guidance='', teaching_plan_guidance='', openclaw_guidance=''):
     # 統一在這裡組 prompt，把知識庫、規則、歷史與本次問題串起來。
     prompt_parts = [
         '你現在是「健言小龍蝦」，也是成熟、資深、可靠的台北市健言社前輩與老師。\n'
-        '你的任務是先拆解問題，再根據本地知識與 OpenClaw 官方查核結果回答。\n'
+        '你的任務是在內部先判斷問題，再根據本地知識與 OpenClaw 官方查核結果回答；不要把內部判斷流程寫給使用者。\n'
         '【回答硬性規則】\n'
         '1. 優先使用「知識內容」中已明確出現的資訊；若有 OpenClaw 官方查核結果且含來源，也可用於本次回答。\n'
         '2. 若本地知識與 OpenClaw 查核都沒有明確答案，必須回答「目前本地知識庫與可查核官方來源都沒有這項資訊」或「目前提供的社團資料不足以確認」。\n'
-        '3. 禁止自行補人物、時間、活動、職位、經歷；禁止把推測當成事實。\n'
-        '4. 先回答使用者真正問的核心問題，再補充最多 2 點相關資訊。\n'
-        '5. 若問題含有「目前、最近、現任、最新、本週、下週」等時間語意，優先使用本地現況資料；不足時使用 OpenClaw 查核結果。\n'
-        '6. 回答要像前輩老師：先幫對方釐清問題，再給穩健答案、提醒風險與下一步；不要空泛長篇。\n'
-        '7. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 不足，改用 OpenClaw 查核結果，仍不足才回覆資料不足。\n'
-        '8. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n'
-        '9. 若使用者提供已核可官方連結或要求看官網 / 官方社群，必須使用本次 OpenClaw / 官方查核結果；禁止回答「我無法主動瀏覽、無法解讀連結、只能依本地知識」這類與系統能力相反的說法。\n'
-        '10. 若問題不清楚、上下文不足或可能有多種解讀，先說明「我目前能合理判斷的是...」，列出 1-3 個合理可能性，再指出需要補充的資訊；不可把其中一種可能性當成事實。\n'
-        '11. 不要把內部檔名、來源片段標記或 citation token 顯示給使用者；禁止輸出像 [cite: 90_club_manual.md] 這類標記。\n'
-        '12. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
+        '3. 對任何社團事實問題，只要本地知識庫找不到明確答案，下一步一定是查核已核可官方來源（官網、課表、當期幹部、理事會、公告/活動頁、官方社群）；官方也沒有才說資料不足。\n'
+        '4. 禁止自行補人物、時間、活動、職位、經歷；禁止把推測當成事實。\n'
+        '5. 先回答使用者真正問的核心問題，再補充最多 2 點相關資訊。\n'
+        '6. 若問題含有「目前、最近、現任、最新、本週、下週」等時間語意，優先使用本地現況資料；不足時使用 OpenClaw 查核結果。\n'
+        '7. 回答要像前輩老師：先幫對方釐清問題，再給穩健答案、提醒風險與下一步；不要空泛長篇。\n'
+        '8. 若問題意圖是 RULE_QUERY / COURSE_QUERY / ORG_QUERY，必須優先使用 90_club_manual.md；若 club_manual 不足，改用 OpenClaw 查核結果，仍不足才回覆資料不足。\n'
+        '9. 若問題意圖是 PROMOTION_QUERY，請根據已知課程/公告內容寫成吸引人、邀請式的宣傳或社務布達，不可虛構未提供的細節。\n'
+        '10. 若使用者提供已核可官方連結或要求看官網 / 官方社群，必須使用本次 OpenClaw / 官方查核結果；禁止回答「我無法主動瀏覽、無法解讀連結、只能依本地知識」這類與系統能力相反的說法。\n'
+        '11. 若使用者詢問課表、時間表、開課時間、上課時間、課程時間、日期、幾點或何時，必須優先使用官網課表 / OpenClaw 官方查核結果；禁止只回答「本地知識庫沒有明確時間，請自行查詢官網」。\n'
+        '11a. 若「知識內容」已包含台北市健言社官網課表、官網最新公告或 OpenClaw 官方查核的具體課程資料，必須直接摘要日期、主題、訓練項目、講師或公告標題；禁止只說「可參考官網或公告頁取得最新資訊」。\n'
+        '12. 若問題不清楚、上下文不足或可能有多種解讀，先說明「我目前能合理判斷的是...」，列出 1-3 個合理可能性，再指出需要補充的資訊；不可把其中一種可能性當成事實。\n'
+        '13. 不要把內部檔名、來源片段標記或 citation token 顯示給使用者；禁止輸出像 [cite: 90_club_manual.md] 這類標記。\n'
+        '14. 禁止輸出內部流程或草稿語句，例如「首先，我們需要拆解使用者真正要解決的問題」、「我們先用本地知識確認事實」、「根據 OpenClaw 的回覆」、「以下是我的回答」。請直接給使用者可讀的最終答案。\n'
+        '15. 若回答中得到本地沒有的新事實，可在回覆末尾用 <LEARNED>新事實；來源；確認日期</LEARNED> 標記，系統會寫入 pending review；不要告訴使用者這個標記。\n\n'
         f'問題意圖分類：{intent}\n'
         f'club_manual 是否存在：{manual_exists}\n'
         f'club_manual 是否命中可用段落：{manual_hit}\n\n'
@@ -759,6 +917,14 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         prompt_parts.append(f'回答前規劃（feature flag）：\n{teaching_plan_guidance}\n\n')
     if openclaw_guidance:
         prompt_parts.append(f'{openclaw_guidance}\n')
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
+        prompt_parts.append(
+            '技能教練回答規則：\n'
+            '- 使用者是在要你教他怎麼說，不是在問本週課表或官方資料。\n'
+            '- 若使用者提到「總評、講評、主席、開場、題目、主題」，先直接點題，給一段可上台照念的版本。\n'
+            '- 回答順序固定為：1) 可直接使用的開場稿；2) 這樣點題的邏輯；3) 可替換句。\n'
+            '- 不要先解釋很多理論，不要回答課表資訊，不要請使用者去查官網。\n\n'
+        )
     if history:
         prompt_parts.append('對話歷史（僅供語氣連貫，不可覆蓋知識事實）：\n')
         for i, (user_msg, ai_msg) in enumerate(history[-state.max_history_length:], 1):
@@ -910,6 +1076,9 @@ def ask_ai(
                     scoped_knowledge += f'\n\n--- 來自 台北市健言社官網課表 ---\n{course_info}'
                     course_info_retrieved = True
                     logger.info('Official course schedule retrieval added context intent=%s', intent)
+                    if should_answer_official_course_info_directly(user_input, intent, course_info):
+                        tracker.end_step(success=True, result='course_schedule_direct_answer')
+                        return course_info
                 tracker.end_step(success=True, result='course_schedule_retrieved' if course_info_retrieved else 'no_course_schedule_match')
             except Exception as e:
                 tracker.add_error('course_schedule_retrieval', str(e))
@@ -1045,6 +1214,10 @@ def ask_ai(
                         '\n\n--- 來自 OpenClaw 官方查核（pending review） ---\n'
                         + '\n'.join(f'- {item}' for item in sidecar_result.outputs)
                     )
+                    openclaw_direct_answer = '\n'.join(str(item).strip() for item in sidecar_result.outputs if str(item).strip())
+                    if should_answer_official_course_info_directly(user_input, intent, openclaw_direct_answer):
+                        tracker.end_step(success=True, result='openclaw_course_schedule_direct_answer')
+                        return openclaw_direct_answer
                 tracker.end_step(success=True, result='sidecar_processed')
 
         # 規則/課程/組織類問題若 club_manual 無命中，需先嘗試 OpenClaw；仍無依據才保守拒答。
@@ -1060,7 +1233,7 @@ def ask_ai(
                 teaching_plan.next_action if teaching_plan else '請提供對應課程規則來源後再詢問。'
             )
 
-        if config.official_site_retrieval_enabled:
+        if config.official_site_retrieval_enabled and not is_skill_training_request(user_input):
             tracker.start_step('official_site_retrieval')
             try:
                 course_info = None if course_info_retrieved else providers.query_course_info(user_input)
@@ -1165,6 +1338,16 @@ def ask_ai(
                     tracker.end_step(success=True, result=f'success_with_{provider_name}')
                     attempt_success = True
                     tracker.end_step(success=True, result=f'attempt_{attempt + 1}_success')
+                    if response_asks_user_to_lookup(result):
+                        logger.info(
+                            'Provider response asked user to lookup official sources; running post-response official lookup intent=%s provider=%s',
+                            intent,
+                            provider_name,
+                        )
+                        tracker.start_step('post_response_official_lookup')
+                        official_lookup_response = build_post_response_official_lookup(providers, user_input, intent, logger)
+                        tracker.end_step(success=True, result='post_response_official_lookup_completed')
+                        return official_lookup_response
                     return result
 
                 tracker.end_step(success=False, result=f'{provider_name}_failed')
