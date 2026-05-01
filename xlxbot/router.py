@@ -49,6 +49,7 @@ SKILL_TRAINING_KEYWORDS = [
     '開塲',
     '破題',
     '解題',
+    '稿',
     '講稿',
     '演講稿',
     '三分鐘',
@@ -674,6 +675,97 @@ def openclaw_outputs_have_grounding(result):
     return bool(meaningful_lines)
 
 
+def _digits_to_chinese_digit_sequence(value):
+    mapping = {
+        '0': '零',
+        '1': '一',
+        '2': '二',
+        '3': '三',
+        '4': '四',
+        '5': '五',
+        '6': '六',
+        '7': '七',
+        '8': '八',
+        '9': '九',
+    }
+    return ''.join(mapping.get(ch, ch) for ch in str(value or ''))
+
+
+def _parse_chinese_number(value):
+    text = re.sub(r'[^零〇一二三四五六七八九十百\d]', '', value or '')
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+
+    digits = {'零': 0, '〇': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+    if text and all(char in digits for char in text):
+        return int(''.join(str(digits[char]) for char in text))
+
+    total = 0
+    current = 0
+    units = {'十': 10, '百': 100}
+    for char in text:
+        if char in digits:
+            current = digits[char]
+            continue
+        if char in units:
+            total += (current or 1) * units[char]
+            current = 0
+    return total + current if total or current else None
+
+
+def _extract_requested_term_number(user_input):
+    match = re.search(r'第\s*([零〇一二三四五六七八九十百\d]+)\s*期', user_input or '')
+    if not match:
+        match = re.search(r'(\d+)\s*期', user_input or '')
+    if not match:
+        return None
+    return _parse_chinese_number(match.group(1))
+
+
+def _term_variants(number):
+    if number is None:
+        return []
+    digits = str(number)
+    chinese_digits = _digits_to_chinese_digit_sequence(digits)
+    variants = [
+        f'{digits}期',
+        f'第{digits}期',
+        f'{chinese_digits}期',
+        f'第{chinese_digits}期',
+    ]
+    # The official presidents page sometimes uses plain Chinese numerals for early terms.
+    if number == 1:
+        variants.extend(['一期', '第一期'])
+    return list(dict.fromkeys(variants))
+
+
+def openclaw_outputs_answer_member_query(user_input, result):
+    if not openclaw_outputs_have_grounding(result):
+        return False
+
+    text = (user_input or '').lower()
+    joined = '\n'.join(str(item) for item in result.outputs)
+
+    if any(keyword in text for keyword in ['創社', '創辦', '創立']):
+        return (
+            any(keyword in joined for keyword in ['創社', '創辦', '創立'])
+            and any(marker in joined for marker in ['第一期', '第1期'])
+            and '社長' in joined
+        )
+
+    term_number = _extract_requested_term_number(text)
+    if term_number is not None:
+        variants = _term_variants(term_number)
+        return any(variant in joined for variant in variants)
+
+    if any(keyword in text for keyword in ['本期', '現任', '現在', '目前', '當期']):
+        return any(keyword in joined for keyword in ['當期', '現任', '目前', '第159期', '本期'])
+
+    return True
+
+
 def compact_log_text(value, max_chars=900):
     text = re.sub(r'\s+', ' ', str(value or '')).strip()
     if len(text) <= max_chars:
@@ -856,6 +948,9 @@ def response_asks_user_to_lookup(response):
 
 
 def build_post_response_official_lookup(providers, user_input, intent, logger):
+    if intent == INTENT_HOW_TO and is_skill_training_request(user_input):
+        return build_skill_training_fallback(user_input)
+
     outputs = []
 
     lookup_steps = [
@@ -881,6 +976,35 @@ def build_post_response_official_lookup(providers, user_input, intent, logger):
     return (
         '我已查核目前可用的已核可官方來源，但沒有取得足夠明確的資料可以回答這題。'
         '目前本地知識庫與可查核官方來源都沒有這項資訊。'
+    )
+
+
+def build_skill_training_fallback(user_input):
+    text = user_input or ''
+    if '總評' in text:
+        role = '總評'
+        focus = '流程、角色、氣氛與下次建議'
+        template = '今天我會從流程、角色配合與整體學習氣氛，幫大家整理這場課最值得保留的一點，以及下次可以更好的地方。'
+    elif '講評' in text:
+        role = '講評'
+        focus = '講員特色、有效做法與一個可執行建議'
+        template = '我會先說這位講員最有效的地方，再提出一個下次立刻能練的調整，讓這次上台變成下一次進步的起點。'
+    elif '主席' in text or '主持' in text:
+        role = '主席'
+        focus = '主題破題、規則說明、串場與控時'
+        template = '今天的主題先不急著定義成一句標語，我們可以把它當成一個練習方向：每一次上台，都讓自己比上一次更清楚、更穩一點。'
+    else:
+        role = '三分鐘演講稿'
+        focus = '一句核心主旨、三段結構、一個具體例子與結尾回扣'
+        template = '今天我想分享的不是一個大道理，而是一個我真正遇過的時刻。透過這個故事，我想說明：只要先抓住一個重點，再把它說清楚，三分鐘也能留下力量。'
+
+    return (
+        f'目前沒有足夠題目或官方資料可以確認本週實際安排；但如果你是在準備{role}，可以先用通用技巧處理。\n\n'
+        f'建議先抓三件事：\n'
+        f'1. 先定焦點：這次先看「{focus}」，不要一次講太多。\n'
+        '2. 先給可用句：用一句話穩住開場，再進入觀察或建議。\n'
+        '3. 先留彈性：等拿到正式題目、講員名單或流程後，再把人名與題目補進去。\n\n'
+        f'可先這樣說：\n「{template}」'
     )
 
 
@@ -921,8 +1045,9 @@ def build_prompt(state, user_input, knowledge_content, intent, manual_exists, ma
         prompt_parts.append(
             '技能教練回答規則：\n'
             '- 使用者是在要你教他怎麼說，不是在問本週課表或官方資料。\n'
-            '- 若使用者提到「總評、講評、主席、開場、題目、主題」，先直接點題，給一段可上台照念的版本。\n'
-            '- 回答順序固定為：1) 可直接使用的開場稿；2) 這樣點題的邏輯；3) 可替換句。\n'
+            '- 若使用者提到「總評、講評、主席、開場、題目、主題」，先直接給可上台照念或可立即練習的版本。\n'
+            '- 若使用者沒有提供題目、講員名單、當週主題或官方查核沒有資料，不要只回資料不足；請改給通用技巧、可替換模板與需要補上的欄位。\n'
+            '- 回答順序固定為：1) 可直接使用的開場稿或說法；2) 這樣處理的邏輯；3) 拿到正式題目後可替換的欄位。\n'
             '- 不要先解釋很多理論，不要回答課表資訊，不要請使用者去查官網。\n\n'
         )
     if history:
@@ -1220,6 +1345,24 @@ def ask_ai(
                         return openclaw_direct_answer
                 tracker.end_step(success=True, result='sidecar_processed')
 
+        if (
+            intent == INTENT_MEMBER
+            and not getattr(config, 'official_site_retrieval_enabled', False)
+            and not openclaw_outputs_answer_member_query(user_input, sidecar_result)
+        ):
+            logger.info(
+                'INSUFFICIENT_MEMBER_GROUNDING intent=%s lookup_attempted=%s lookup_reasons=%s sidecar_status=%s audit_ref=%s（人物/職位查詢未對題命中，避免把其他任期或職責模板當答案）',
+                intent,
+                should_dispatch_sidecar,
+                openclaw_lookup_reasons,
+                sidecar_result.status if sidecar_result else None,
+                sidecar_result.audit_ref if sidecar_result else None,
+            )
+            tracker.end_step(success=True, result='insufficient_member_grounding')
+            return build_insufficient_knowledge_response(
+                '系統已查核可用官方來源，但沒有找到與這個人物或職位問題對應的明確資料。'
+            )
+
         # 規則/課程/組織類問題若 club_manual 無命中，需先嘗試 OpenClaw；仍無依據才保守拒答。
         if intent in MANUAL_PRIORITY_INTENTS and (not manual_exists or not manual_hit) and not openclaw_outputs_have_grounding(sidecar_result):
             logger.info(
@@ -1247,11 +1390,30 @@ def ask_ai(
                 official_site_info = providers.query_official_site_map(user_input, intent)
                 if official_site_info:
                     scoped_knowledge += f'\n\n--- 來自 台北市健言社官網 site map ---\n{official_site_info}'
+                    if intent == INTENT_MEMBER and sidecar_result is None:
+                        sidecar_result = type('OfficialSiteGrounding', (), {
+                            'outputs': [official_site_info],
+                            'task_type': 'lookup',
+                        })()
                 tracker.end_step(success=True, result='site_retrieval_completed')
             except Exception as e:
                 tracker.add_error('site_retrieval', str(e))
                 logger.warning('Official site retrieval failed: %s', e)
                 tracker.end_step(success=False, result='site_retrieval_failed')
+
+        if intent == INTENT_MEMBER and not openclaw_outputs_answer_member_query(user_input, sidecar_result):
+            logger.info(
+                'INSUFFICIENT_MEMBER_GROUNDING intent=%s lookup_attempted=%s lookup_reasons=%s sidecar_status=%s audit_ref=%s（人物/職位查詢未對題命中，避免把其他任期或職責模板當答案）',
+                intent,
+                should_dispatch_sidecar,
+                openclaw_lookup_reasons,
+                getattr(sidecar_result, 'status', None),
+                getattr(sidecar_result, 'audit_ref', None),
+            )
+            tracker.end_step(success=True, result='insufficient_member_grounding')
+            return build_insufficient_knowledge_response(
+                '系統已查核可用官方來源，但沒有找到與這個人物或職位問題對應的明確資料。'
+            )
 
         if intent in FACT_REQUIRED_INTENTS and not has_grounded_facts(scoped_knowledge):
             logger.info(

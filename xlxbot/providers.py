@@ -360,7 +360,10 @@ class ProviderService:
         keywords = [
             '社團', '社團簡介', '健言', '小龍蝦', '理事長', '理監事', '高級幹部', '幹部', '社長', '副社長', '組長', '負責人', '講師', '講員', '辯論',
             '歷任', '資歷', '活動', '公告', '照片', '相簿', '影片', '影音', '官網', 'leaders', 'board', 'lecturer',
-            'presidents', 'debate', 'events', 'photos', 'videos', 'rules', 'instagram', 'facebook', 'youtube', 'flickr', 'ig', 'fb'
+            'presidents', 'debate', 'events', 'photos', 'videos', 'rules', 'instagram', 'facebook', 'youtube', 'flickr', 'ig', 'fb',
+            '創社', '創辦', '創立', '創辦人', '沿革', '歷史', '第一期', '草創', '最早', '師資', '認證講師', '老師', '教練', 'teachers',
+            '三分鐘演講', '教上台', '學習心得', '心得', '感想', '反思', '學完', 'reflection',
+            '加入', '報名', '試聽', '中途加入', '費用', '社費', '單堂', '請假', '多少錢', '怎麼參加', 'join',
         ]
         return any(keyword in text for keyword in keywords)
 
@@ -394,6 +397,7 @@ class ProviderService:
             return targets[:4]
 
         if re.search(r'\d+\s*期.*(社長|副社長|組長|幹部|負責人)', text):
+            add('https://tmc1974.com/presidents/')
             add('https://tmc1974.com/leaders/')
             add('https://tmc1974.com/board-members/')
             add('https://tmc1974.com/')
@@ -403,14 +407,20 @@ class ProviderService:
         if any(keyword in text for keyword in ['社團簡介', 'rules', '高級幹部']):
             add('https://tmc1974.com/rules/')
 
-        if any(keyword in text for keyword in ['歷任', '資歷', 'presidents']):
+        if any(keyword in text for keyword in ['創社', '創辦', '創立', '創辦人', '沿革', '歷史', '第一期', '草創', '最早', '歷任', '資歷', 'presidents']):
             add('https://tmc1974.com/presidents/')
         if any(keyword in text for keyword in ['理事長', '理監事', 'board', '董事', '監事']):
             add('https://tmc1974.com/board-members/')
         if any(keyword in text for keyword in ['幹部', '領導', 'leaders', '社長', '副社長', '組長', '負責人']):
             add('https://tmc1974.com/leaders/')
+        if any(keyword in text for keyword in ['講師', '師資', '認證講師', '老師', '教練', '三分鐘演講', '教上台', 'teachers']):
+            add('https://tmc1974.com/teachers/')
         if any(keyword in text for keyword in ['講師', 'lecturer', '教育訓練']):
             add('https://tmc1974.com/lecturer/')
+        if any(keyword in text for keyword in ['學習心得', '心得', '感想', '反思', '學完', 'reflection']):
+            add('https://tmc1974.com/category/reflection/')
+        if any(keyword in text for keyword in ['加入', '報名', '試聽', '中途加入', '費用', '社費', '單堂', '請假', '多少錢', '怎麼參加', 'join']):
+            add('https://tmc1974.com/join/')
         if any(keyword in text for keyword in ['辯論', 'debate']):
             add('https://tmc1974.com/debate/')
         if any(keyword in text for keyword in ['活動', '會外會', 'event', 'events', '文宣', '宣傳', '公告']):
@@ -448,6 +458,7 @@ class ProviderService:
             add('https://www.instagram.com/taipeitoastmasters/')
             add('https://www.facebook.com/tmc1974')
         elif intent == 'COURSE_QUERY':
+            add('https://tmc1974.com/teachers/')
             add('https://tmc1974.com/lecturer/')
             add('https://tmc1974.com/debate/')
         elif intent == 'OVERVIEW':
@@ -523,18 +534,21 @@ class ProviderService:
 
         header = rows[0]
         data_rows = rows[1:]
+        text = user_input or ''
         sequence_unit = '屆' if header and '屆' in header[0] else '期' if header and '期' in header[0] else None
         if sequence_unit == '屆' and re.search(r'第\s*[零〇一二三四五六七八九十百\d]+\s*期', user_input or ''):
             return []
         if sequence_unit == '期' and re.search(r'第\s*[零〇一二三四五六七八九十百\d]+\s*屆', user_input or ''):
             return []
         requested_numbers = self._extract_requested_sequence_numbers(user_input, unit=sequence_unit)
-        text = user_input or ''
         matched_rows = []
+        founder_like_query = sequence_unit == '期' and any(keyword in text for keyword in ['創社', '創辦', '創立', '第一期', '最早', '草創'])
 
         for row in data_rows:
             sequence_number = self._extract_sequence_number(row[0] if row else '')
             if requested_numbers and sequence_number in requested_numbers:
+                matched_rows.append(row)
+            elif founder_like_query and sequence_number == 1:
                 matched_rows.append(row)
             elif not requested_numbers and any(cell and cell in text for cell in row[1:2]):
                 matched_rows.append(row)
@@ -569,7 +583,8 @@ class ProviderService:
         intro_lines = []
         for element in container.find_all(['h1', 'h2', 'h3', 'p'], limit=30):
             text = self._clean_text_line(element.get_text(' ', strip=True))
-            if text and len(text) >= 4 and text not in intro_lines:
+            is_heading = element.name in {'h1', 'h2', 'h3'}
+            if text and (len(text) >= 4 or is_heading) and text not in intro_lines:
                 intro_lines.append(text)
             if len(intro_lines) >= 4:
                 break

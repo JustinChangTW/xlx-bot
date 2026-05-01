@@ -12,11 +12,13 @@ from xlxbot.router import (
     build_openclaw_prompt_guidance,
     build_prompt,
     build_post_response_official_lookup,
+    build_skill_training_fallback,
     ask_ai,
     classify_openclaw_task_type,
     classify_question_intent,
     get_openclaw_lookup_reasons,
     is_problem_analysis_query,
+    openclaw_outputs_answer_member_query,
     response_asks_user_to_lookup,
     select_controlled_tool,
     RequestStateTracker,
@@ -46,6 +48,10 @@ class RouterTestCase(unittest.TestCase):
         )
         self.assertEqual(
             classify_question_intent('我是擔任本周的總評，題目是瑕疵品'),
+            INTENT_HOW_TO,
+        )
+        self.assertEqual(
+            classify_question_intent('稿我不會寫，可以給我範例嗎？'),
             INTENT_HOW_TO,
         )
 
@@ -165,6 +171,34 @@ class RouterTestCase(unittest.TestCase):
         self.assertIn('https://tmc1974.com/board-members/', summary['sources'])
         self.assertTrue(summary['outputs'][0].endswith('...'))
 
+    def test_member_query_grounding_must_match_founder_question(self):
+        mismatched_result = SidecarResult(
+            status='ok',
+            task_type='lookup',
+            confidence=0.84,
+            outputs=['根據 https://tmc1974.com/leaders/ 整理：吳耿豪 第158期社長。'],
+            risk_level='low',
+            requires_approval=False,
+            audit_ref='audit-1',
+        )
+        matched_result = SidecarResult(
+            status='ok',
+            task_type='lookup',
+            confidence=0.84,
+            outputs=[
+                '根據 https://tmc1974.com/presidents/ 整理：\n'
+                '- 創社：民國六十三年春，對外定名為健言社。\n'
+                '- 歷任社長表：期別：第一期；社長：林毓彬；社務發展簡介：擔負起篳路藍縷的艱辛旅程。'
+            ],
+            risk_level='low',
+            requires_approval=False,
+            audit_ref='audit-2',
+        )
+
+        self.assertFalse(openclaw_outputs_answer_member_query('創社社長是誰？', mismatched_result))
+        self.assertTrue(openclaw_outputs_answer_member_query('第158期社長是誰？', mismatched_result))
+        self.assertTrue(openclaw_outputs_answer_member_query('創社社長是誰？', matched_result))
+
     def test_openclaw_lookup_reasons_include_empty_local_knowledge(self):
         class Config:
             sidecar_enabled = True
@@ -226,6 +260,34 @@ class RouterTestCase(unittest.TestCase):
 
         self.assertIn('官方課表/課程查核', response)
         self.assertIn('T.M. 訓練主題：拍賣會', response)
+
+    def test_skill_training_fallback_returns_general_tips_without_topic(self):
+        response = build_post_response_official_lookup(
+            MagicMock(),
+            '我是擔任本周的總評，可以怎麼準備',
+            INTENT_HOW_TO,
+            None,
+        )
+
+        self.assertIn('通用技巧', response)
+        self.assertIn('總評', response)
+        self.assertIn('流程、角色、氣氛', response)
+        self.assertNotIn('本地知識庫與可查核官方來源都沒有這項資訊', response)
+
+    def test_skill_training_fallback_helper_covers_evaluation_role(self):
+        response = build_skill_training_fallback('我是擔任本周的講評，但還沒有題目')
+
+        self.assertIn('講評', response)
+        self.assertIn('講員特色', response)
+        self.assertIn('可先這樣說', response)
+
+    def test_skill_training_fallback_helper_covers_generic_three_minute_draft(self):
+        response = build_skill_training_fallback('稿我不會寫，可以給我範例嗎？')
+
+        self.assertIn('三分鐘演講稿', response)
+        self.assertIn('一句核心主旨', response)
+        self.assertIn('三段結構', response)
+        self.assertIn('可先這樣說', response)
 
     def test_prompt_forbids_exposing_internal_reasoning(self):
         class State:
@@ -347,7 +409,8 @@ class RouterTestCase(unittest.TestCase):
         )
 
         self.assertIn('使用者是在要你教他怎麼說', prompt)
-        self.assertIn('先直接點題', prompt)
+        self.assertIn('可立即練習的版本', prompt)
+        self.assertIn('不要只回資料不足', prompt)
         self.assertIn('可直接使用的開場稿', prompt)
         self.assertIn('不要回答課表資訊', prompt)
 
@@ -644,6 +707,193 @@ class RouterTestCase(unittest.TestCase):
 
         self.assertIn('可直接使用的開場稿', response)
         self.assertIn('瑕疵品不是沒有價值', response)
+        dispatcher.dispatch.assert_not_called()
+        providers.query_course_info.assert_not_called()
+        providers.query_latest_news.assert_not_called()
+        providers.query_official_site_map.assert_not_called()
+        providers.ask_groq.assert_called_once()
+
+    @patch('xlxbot.router.load_knowledge_sections')
+    def test_founder_president_question_returns_insufficient_when_official_result_does_not_match(self, mock_load_knowledge_sections):
+        mock_load_knowledge_sections.return_value = [
+            KnowledgeSection(
+                path='knowledge/90_club_manual.md',
+                content='# club_manual\n\n## 組織職責模板\n### 社長\n- 統籌社務與教育訓練方向',
+            ),
+        ]
+
+        class MismatchedFounderDispatcher:
+            def dispatch(self, user_input, intent, context):
+                decision = SimpleNamespace(
+                    should_call_sidecar=True,
+                    reason='official-lookup',
+                    task_type='lookup',
+                )
+                result = SidecarResult(
+                    status='ok',
+                    task_type='lookup',
+                    confidence=0.84,
+                    outputs=['根據 https://tmc1974.com/leaders/ 整理：吳耿豪 第158期社長。'],
+                    risk_level='low',
+                    requires_approval=False,
+                    audit_ref='member-mismatch',
+                )
+                return decision, result
+
+        providers = MagicMock()
+        providers.is_provider_available.return_value = True
+        config = SimpleNamespace(
+            agent_path_enabled=False,
+            teaching_planner_enabled=False,
+            official_site_retrieval_enabled=False,
+            sidecar_enabled=True,
+            sidecar_mode='openclaw',
+            sidecar_timeout_seconds=8,
+            openclaw_phase='suggest',
+            router_enabled=False,
+            provider_timeout_seconds=5,
+        )
+        state = SimpleNamespace(
+            last_request_tracker=None,
+            route_general='GENERAL',
+            route_expert='EXPERT',
+            route_local='LOCAL',
+            max_history_length=5,
+        )
+        logger = MagicMock()
+
+        response = ask_ai(
+            config,
+            state,
+            logger,
+            providers,
+            '創社社長是誰？',
+            history=[],
+            dispatcher=MismatchedFounderDispatcher(),
+        )
+
+        self.assertIn('沒有取得足夠明確的資料', response)
+        self.assertIn('人物或職位問題', response)
+        self.assertNotIn('吳耿豪', response)
+        providers.ask_gemini.assert_not_called()
+        providers.ask_groq.assert_not_called()
+        providers.ask_ollama.assert_not_called()
+
+    @patch('xlxbot.router.load_knowledge_sections')
+    def test_founder_president_question_can_use_first_president_from_official_history(self, mock_load_knowledge_sections):
+        mock_load_knowledge_sections.return_value = [
+            KnowledgeSection(
+                path='knowledge/20_history.md',
+                content='# 社團沿革\n\n- [需要社團管理員補充]',
+            ),
+        ]
+
+        class FounderHistoryDispatcher:
+            def dispatch(self, user_input, intent, context):
+                decision = SimpleNamespace(
+                    should_call_sidecar=True,
+                    reason='official-lookup',
+                    task_type='lookup',
+                )
+                result = SidecarResult(
+                    status='ok',
+                    task_type='lookup',
+                    confidence=0.84,
+                    outputs=[
+                        '根據 https://tmc1974.com/presidents/ 整理：\n'
+                        '- 創社：民國六十三年春，對外定名為健言社。\n'
+                        '- 歷任社長表：期別：第一期；社長：林毓彬；社務發展簡介：擔負起篳路藍縷的艱辛旅程。'
+                    ],
+                    risk_level='low',
+                    requires_approval=False,
+                    audit_ref='founder-history',
+                )
+                return decision, result
+
+        providers = MagicMock()
+        providers.is_provider_available.side_effect = lambda name: name == 'groq'
+        providers.ask_groq.return_value = '官方頁沒有直接寫「創社社長」，但歷任社長表第一期社長是林毓彬。'
+        config = SimpleNamespace(
+            agent_path_enabled=False,
+            teaching_planner_enabled=False,
+            official_site_retrieval_enabled=False,
+            sidecar_enabled=True,
+            sidecar_mode='openclaw',
+            sidecar_timeout_seconds=8,
+            openclaw_phase='suggest',
+            router_enabled=False,
+            provider_timeout_seconds=5,
+        )
+        state = SimpleNamespace(
+            last_request_tracker=None,
+            route_general='GENERAL',
+            route_expert='EXPERT',
+            route_local='LOCAL',
+            max_history_length=5,
+        )
+        logger = MagicMock()
+
+        response = ask_ai(
+            config,
+            state,
+            logger,
+            providers,
+            '創社社長是誰？',
+            history=[],
+            dispatcher=FounderHistoryDispatcher(),
+        )
+
+        self.assertIn('第一期社長是林毓彬', response)
+        self.assertNotIn('沒有取得足夠明確的資料', response)
+        providers.ask_groq.assert_called_once()
+
+    @patch('xlxbot.router.load_knowledge_sections')
+    def test_generic_draft_request_uses_three_minute_speech_guidance_without_official_lookup(self, mock_load_knowledge_sections):
+        mock_load_knowledge_sections.return_value = [
+            KnowledgeSection(
+                path='knowledge/90_club_manual.md',
+                content='# club_manual\n\n## 講員訓練重點\n- 準備：審題、收集資料、建立結構',
+            ),
+        ]
+        providers = MagicMock()
+        providers.is_provider_available.side_effect = lambda name: name == 'groq'
+        providers.ask_groq.return_value = (
+            '可以，三分鐘講稿先用「開場畫面、故事轉折、結尾回扣」。\n'
+            '範例：第一次上台時，我以為要講得完美，後來才發現講清楚一件事更重要。'
+        )
+        dispatcher = MagicMock()
+        config = SimpleNamespace(
+            agent_path_enabled=False,
+            teaching_planner_enabled=False,
+            official_site_retrieval_enabled=True,
+            sidecar_enabled=True,
+            sidecar_mode='openclaw',
+            sidecar_timeout_seconds=8,
+            openclaw_phase='suggest',
+            router_enabled=False,
+            provider_timeout_seconds=5,
+        )
+        state = SimpleNamespace(
+            last_request_tracker=None,
+            route_general='GENERAL',
+            route_expert='EXPERT',
+            route_local='LOCAL',
+            max_history_length=5,
+        )
+        logger = MagicMock()
+
+        response = ask_ai(
+            config,
+            state,
+            logger,
+            providers,
+            '稿我不會寫，可以給我範例嗎？',
+            history=[],
+            dispatcher=dispatcher,
+        )
+
+        self.assertIn('三分鐘講稿', response)
+        self.assertIn('開場畫面、故事轉折、結尾回扣', response)
         dispatcher.dispatch.assert_not_called()
         providers.query_course_info.assert_not_called()
         providers.query_latest_news.assert_not_called()

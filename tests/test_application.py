@@ -195,6 +195,36 @@ class ApplicationTestCase(unittest.TestCase):
         self.assertIn('期別：第一五八期；社長：吳耿豪', summary)
         self.assertNotIn('社長：高力翔', summary)
 
+    def test_presidents_page_summary_extracts_first_president_for_founder_query(self):
+        providers = ProviderService(SimpleNamespace(gemini_api_key=''), SimpleNamespace(), self.logger)
+        soup = BeautifulSoup(
+            '''
+            <html><head><title>歷任理事長及社長 - 台北市健言社</title></head><body><main>
+              <h1>創社</h1>
+              <p>民國六十三年春，對外定名為「健言社」。</p>
+              <h1>歷任社長</h1>
+              <table>
+                <tr><th>期別</th><th>社長</th><th>社務發展簡介</th></tr>
+                <tr><td>第一五八期</td><td>吳耿豪</td><td></td></tr>
+                <tr><td>第二期</td><td>莊黛玲</td><td>草創初始</td></tr>
+                <tr><td>第一期</td><td>林毓彬</td><td>擔負起篳路藍縷的艱辛旅程</td></tr>
+              </table>
+            </main></body></html>
+            ''',
+            'lxml',
+        )
+
+        summary = providers._extract_presidents_page_summary(
+            soup,
+            'https://tmc1974.com/presidents/',
+            user_input='創社社長是誰？',
+        )
+
+        self.assertIn('創社', summary)
+        self.assertIn('符合問題的官網表格列', summary)
+        self.assertIn('期別：第一期；社長：林毓彬', summary)
+        self.assertNotIn('社長：吳耿豪', summary)
+
     @patch('xlxbot.providers.requests.get')
     def test_generic_official_page_summary_extracts_richer_page_signals(self, mock_get):
         providers = ProviderService(SimpleNamespace(gemini_api_key=''), SimpleNamespace(), self.logger)

@@ -676,9 +676,39 @@ class BotApplication:
 
                     learned_matches = parse_learned_tags(ai_response)
                     if learned_matches:
+                        sidecar_decision = self.state.last_sidecar_decision or {}
+                        allow_ai_learned_tags = (
+                            not sidecar_decision
+                            or sidecar_decision.get('learnable')
+                            or sidecar_decision.get('task_type') not in {'lookup', 'analyze'}
+                        )
                         for match in learned_matches:
                             fact = match.strip()
                             if not fact:
+                                continue
+                            if not allow_ai_learned_tags:
+                                self.logger.warning(
+                                    'Discarded AI learned tag because official lookup was not grounded: %s（官方查核未對題命中，不保存模型自產新事實）',
+                                    fact[:200],
+                                )
+                                append_learning_event(
+                                    self.config,
+                                    self.logger,
+                                    event_type='AI_LEARNED_TAG_DISCARDED',
+                                    user_id=user_id,
+                                    user_input=user_text,
+                                    details={
+                                        'category': 'ungrounded_ai_learned_tag',
+                                        'fact': fact[:200],
+                                        'sidecar_reason': sidecar_decision.get('reason'),
+                                        'sidecar_status': sidecar_decision.get('status'),
+                                    },
+                                    intent='qa_response',
+                                    action='discard_ungrounded_learned_tag',
+                                    risk='low',
+                                    approval='not_required',
+                                    fallback='pending_review_rejected',
+                                )
                                 continue
                             append_pending_knowledge(self.config, self.logger, fact, user_id=user_id)
                             append_learning_event(
